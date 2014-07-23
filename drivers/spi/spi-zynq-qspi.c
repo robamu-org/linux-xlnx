@@ -57,7 +57,6 @@
 #define ZYNQ_QSPI_CONFIG_CPHA_MASK	0x00000004 /* Clock Phase Control */
 #define ZYNQ_QSPI_CONFIG_CPOL_MASK	0x00000002 /* Clock Polarity Control */
 #define ZYNQ_QSPI_CONFIG_SSCTRL_MASK	0x00003C00 /* Slave Select Mask */
-#define ZYNQ_QSPI_CONFIG_PCS_MASK	0x00000400 /* Peri chip select */
 #define ZYNQ_QSPI_CONFIG_FWIDTH_MASK	0x000000C0 /* FIFO width */
 #define ZYNQ_QSPI_CONFIG_MSTREN_MASK	0x00000001 /* Master Mode */
 
@@ -348,10 +347,13 @@ static void zynq_qspi_chipselect(struct spi_device *qspi, bool is_high)
 
 	if (is_high) {
 		/* Deselect the slave */
-		config_reg |= ZYNQ_QSPI_CONFIG_PCS_MASK;
+		config_reg |= ZYNQ_QSPI_CONFIG_SSCTRL_MASK;
 	} else {
 		/* Select the slave */
-		config_reg &= ~ZYNQ_QSPI_CONFIG_PCS_MASK;
+		config_reg &= ~ZYNQ_QSPI_CONFIG_SSCTRL_MASK;
+		config_reg |= (((~(BIT(qspi->chip_select))) <<
+				 ZYNQ_QSPI_SS_SHIFT) &
+				 ZYNQ_QSPI_CONFIG_SSCTRL_MASK);
 		xqspi->is_instr = 1;
 	}
 
