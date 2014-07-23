@@ -106,12 +106,6 @@
 #define ZYNQ_QSPI_RX_THRESHOLD		32 /* Rx FIFO threshold level */
 #define ZYNQ_QSPI_TX_THRESHOLD		1 /* Tx FIFO threshold level */
 
-/*
- * The modebits configurable by the driver to make the SPI support different
- * data formats
- */
-#define MODEBITS			(SPI_CPOL | SPI_CPHA)
-
 /* Default number of chip selects */
 #define ZYNQ_QSPI_DEFAULT_NUM_CS	1
 
@@ -126,7 +120,8 @@
  * @rxbuf:		Pointer to the RX buffer
  * @bytes_to_transfer:	Number of bytes left to transfer
  * @bytes_to_receive:	Number of bytes left to receive
- * @is_dual:		Flag to indicate whether dual flash memories are used
+ * @is_parallel:	Flag to indicate two flash devices are in parallel
+ * @is_stacked:		Flag to indicate two flash devices are stacked
  */
 struct zynq_qspi {
 	void __iomem *regs;
@@ -137,7 +132,8 @@ struct zynq_qspi {
 	void *rxbuf;
 	int bytes_to_transfer;
 	int bytes_to_receive;
-	u32 is_dual;
+	u32 is_parallel;
+	u32 is_stacked;
 	u8 is_instr;
 };
 
@@ -210,20 +206,20 @@ static void zynq_qspi_init_hw(struct zynq_qspi *xqspi)
 	zynq_qspi_write(xqspi, ZYNQ_QSPI_TX_THRESH_OFFSET,
 			ZYNQ_QSPI_TX_THRESHOLD);
 
-	if (xqspi->is_dual)
+	if (xqspi->is_parallel)
 		/* Enable two memories on seperate buses */
 		zynq_qspi_write(xqspi, ZYNQ_QSPI_LINEAR_CFG_OFFSET,
 				(ZYNQ_QSPI_LCFG_TWO_MEM_MASK |
 				ZYNQ_QSPI_LCFG_SEP_BUS_MASK |
 				(1 << ZYNQ_QSPI_LCFG_DUMMY_SHIFT) |
 				ZYNQ_QSPI_FAST_READ_QOUT_CODE));
-#ifdef CONFIG_SPI_ZYNQ_QSPI_DUAL_STACKED
-	/* Enable two memories on shared bus */
-	zynq_qspi_write(xqspi, ZYNQ_QSPI_LINEAR_CFG_OFFSET,
-			(ZYNQ_QSPI_LCFG_TWO_MEM_MASK |
-			(1 << ZYNQ_QSPI_LCFG_DUMMY_SHIFT) |
-			ZYNQ_QSPI_FAST_READ_QOUT_CODE));
-#endif
+	if (xqspi->is_stacked)
+		/* Enable two memories on shared bus */
+		zynq_qspi_write(xqspi, ZYNQ_QSPI_LINEAR_CFG_OFFSET,
+				(ZYNQ_QSPI_LCFG_TWO_MEM_MASK |
+				(1 << ZYNQ_QSPI_LCFG_DUMMY_SHIFT) |
+				ZYNQ_QSPI_FAST_READ_QOUT_CODE));
+
 	zynq_qspi_write(xqspi, ZYNQ_QSPI_ENABLE_OFFSET,
 			ZYNQ_QSPI_ENABLE_ENABLE_MASK);
 }
@@ -241,7 +237,7 @@ static void zynq_qspi_init_hw(struct zynq_qspi *xqspi)
 static void zynq_qspi_copy_read_data(struct zynq_qspi *xqspi, u32 data, u8 size)
 {
 	if (xqspi->rxbuf) {
-		if (!xqspi->is_dual || xqspi->is_instr) {
+		if (!xqspi->is_parallel || xqspi->is_instr) {
 			memcpy(xqspi->rxbuf, ((u8 *) &data) + 4 - size, size);
 			xqspi->rxbuf += size;
 		} else {
@@ -278,47 +274,6 @@ static void zynq_qspi_copy_write_data(struct zynq_qspi *xqspi, u32 *data,
 }
 
 /**
- * zynq_prepare_transfer_hardware - Prepares hardware for transfer.
- * @master:	Pointer to the spi_master structure which provides
- *		information about the controller.
- *
- * This function enables SPI master controller.
- *
- * Return:	Always 0
- */
-static int zynq_prepare_transfer_hardware(struct spi_master *master)
-{
-	struct zynq_qspi *xqspi = spi_master_get_devdata(master);
-
-	clk_enable(xqspi->refclk);
-	clk_enable(xqspi->pclk);
-	zynq_qspi_write(xqspi, ZYNQ_QSPI_ENABLE_OFFSET,
-			ZYNQ_QSPI_ENABLE_ENABLE_MASK);
-
-	return 0;
-}
-
-/**
- * zynq_unprepare_transfer_hardware - Relaxes hardware after transfer
- * @master:	Pointer to the spi_master structure which provides
- *		information about the controller.
- *
- * This function disables the SPI master controller.
- *
- * Return:	Always 0
- */
-static int zynq_unprepare_transfer_hardware(struct spi_master *master)
-{
-	struct zynq_qspi *xqspi = spi_master_get_devdata(master);
-
-	zynq_qspi_write(xqspi, ZYNQ_QSPI_ENABLE_OFFSET, 0);
-	clk_disable(xqspi->refclk);
-	clk_disable(xqspi->pclk);
-
-	return 0;
-}
-
-/**
  * zynq_qspi_chipselect - Select or deselect the chip select line
  * @qspi:	Pointer to the spi_device structure
  * @is_high:	Select(0) or deselect (1) the chip select line
@@ -327,14 +282,13 @@ static void zynq_qspi_chipselect(struct spi_device *qspi, bool is_high)
 {
 	struct zynq_qspi *xqspi = spi_master_get_devdata(qspi->master);
 	u32 config_reg;
-#ifdef CONFIG_SPI_ZYNQ_QSPI_DUAL_STACKED
-	u32 lqspi_cfg_reg;
-#endif
 
 	config_reg = zynq_qspi_read(xqspi, ZYNQ_QSPI_CONFIG_OFFSET);
 
 	/* Select upper/lower page before asserting CS */
-#ifdef CONFIG_SPI_ZYNQ_QSPI_DUAL_STACKED
+	if (xqspi->is_stacked) {
+		u32 lqspi_cfg_reg;
+
 		lqspi_cfg_reg = zynq_qspi_read(xqspi,
 					       ZYNQ_QSPI_LINEAR_CFG_OFFSET);
 		if (qspi->master->flags & SPI_MASTER_U_PAGE)
@@ -343,7 +297,7 @@ static void zynq_qspi_chipselect(struct spi_device *qspi, bool is_high)
 			lqspi_cfg_reg &= ~ZYNQ_QSPI_LCFG_U_PAGE_MASK;
 		zynq_qspi_write(xqspi, ZYNQ_QSPI_LINEAR_CFG_OFFSET,
 				lqspi_cfg_reg);
-#endif
+	}
 
 	if (is_high) {
 		/* Deselect the slave */
@@ -361,16 +315,36 @@ static void zynq_qspi_chipselect(struct spi_device *qspi, bool is_high)
 }
 
 /**
- * zynq_qspi_setup_transfer - Configure QSPI controller for specified transfer
+ * zynq_qspi_config_clock_mode - Sets clock frequency
  * @qspi:	Pointer to the spi_device structure
- * @transfer:	Pointer to the spi_transfer structure which provides information
- *		about next transfer setup parameters
  *
- * Sets the operational mode of QSPI controller for the next QSPI transfer and
- * sets the requested clock frequency.
+ * Sets the requested clock polarity and phase.
+ */
+static void zynq_qspi_config_clock_mode(struct spi_device *qspi)
+{
+	struct zynq_qspi *xqspi = spi_master_get_devdata(qspi->master);
+	u32 config_reg;
+
+	config_reg = zynq_qspi_read(xqspi, ZYNQ_QSPI_CONFIG_OFFSET);
+
+	/* Set the QSPI clock phase and clock polarity */
+	config_reg &= (~ZYNQ_QSPI_CONFIG_CPHA_MASK) &
+		(~ZYNQ_QSPI_CONFIG_CPOL_MASK);
+	if (qspi->mode & SPI_CPHA)
+		config_reg |= ZYNQ_QSPI_CONFIG_CPHA_MASK;
+	if (qspi->mode & SPI_CPOL)
+		config_reg |= ZYNQ_QSPI_CONFIG_CPOL_MASK;
+
+	zynq_qspi_write(xqspi, ZYNQ_QSPI_CONFIG_OFFSET, config_reg);
+}
+
+/**
+ * zynq_qspi_config_clock_freq - Sets clock frequency
+ * @qspi:	Pointer to the spi_device structure
+ * @transfer:	Pointer to the spi_transfer structure which provides
+ * 		information about next transfer setup parameters
  *
- * Return:	0 on success and -EINVAL on invalid input parameter
- *
+ * Sets the requested clock frequency.
  * Note: If the requested frequency is not an exact match with what can be
  * obtained using the prescalar value, the driver sets the clock frequency which
  * is lower than the requested frequency (maximum lower) for the transfer. If
@@ -378,56 +352,44 @@ static void zynq_qspi_chipselect(struct spi_device *qspi, bool is_high)
  * controller the driver will set the highest or lowest frequency supported by
  * controller.
  */
-static int zynq_qspi_setup_transfer(struct spi_device *qspi,
-				    struct spi_transfer *transfer)
+static void zynq_qspi_config_clock_freq(struct spi_device *qspi,
+					struct spi_transfer *transfer)
 {
 	struct zynq_qspi *xqspi = spi_master_get_devdata(qspi->master);
-	u32 config_reg, req_hz, baud_rate_val = 0;
-
-	if (transfer)
-		req_hz = transfer->speed_hz;
-	else
-		req_hz = qspi->max_speed_hz;
+	u32 config_reg, baud_rate_val = 0;
 
 	/* Set the clock frequency */
-	/* If req_hz == 0, default to lowest speed */
+	/* If requested frequency is zero, default to lowest speed */
 	while ((baud_rate_val < ZYNQ_QSPI_BAUD_DIV_MAX)  &&
-	       (clk_get_rate(xqspi->refclk) / (2 << baud_rate_val)) > req_hz)
+			(clk_get_rate(xqspi->refclk) / (2 << baud_rate_val)) >
+			transfer->speed_hz)
 		baud_rate_val++;
 
 	config_reg = zynq_qspi_read(xqspi, ZYNQ_QSPI_CONFIG_OFFSET);
-
-	/* Set the QSPI clock phase and clock polarity */
-	config_reg &= (~ZYNQ_QSPI_CONFIG_CPHA_MASK) &
-		      (~ZYNQ_QSPI_CONFIG_CPOL_MASK);
-	if (qspi->mode & SPI_CPHA)
-		config_reg |= ZYNQ_QSPI_CONFIG_CPHA_MASK;
-	if (qspi->mode & SPI_CPOL)
-		config_reg |= ZYNQ_QSPI_CONFIG_CPOL_MASK;
-
 	config_reg &= ~ZYNQ_QSPI_CONFIG_BDRATE_MASK;
 	config_reg |= (baud_rate_val << ZYNQ_QSPI_BAUD_DIV_SHIFT);
 
 	zynq_qspi_write(xqspi, ZYNQ_QSPI_CONFIG_OFFSET, config_reg);
-
-	return 0;
 }
 
 /**
- * zynq_qspi_setup - Configure the QSPI controller
+ * zynq_qspi_setup_transfer - Configure QSPI controller for specified transfer
  * @qspi:	Pointer to the spi_device structure
+ * @transfer:	Pointer to the spi_transfer structure which provides information
+ * 		about next transfer setup parameters
  *
- * Sets the operational mode of QSPI controller for the next QSPI transfer, baud
- * rate and divisor value to setup the requested qspi clock.
+ * Sets the operational mode of QSPI controller for the next QSPI transfer and
+ * sets the requested clock frequency.
  *
- * Return:	0 on success and error value on failure
+ * Return: Always 0
+ *
  */
-static int zynq_qspi_setup(struct spi_device *qspi)
+static int zynq_qspi_setup_transfer(struct spi_device *qspi,
+           struct spi_transfer *transfer)
 {
-	if (qspi->master->busy)
-		return -EBUSY;
+	zynq_qspi_config_clock_freq(qspi, transfer);
 
-	return zynq_qspi_setup_transfer(qspi, NULL);
+	return 0;
 }
 
 /**
@@ -540,13 +502,14 @@ static irqreturn_t zynq_qspi_irq(int irq, void *dev_id)
 				/* There is more data to send */
 				zynq_qspi_fill_tx_fifo(xqspi,
 						       ZYNQ_QSPI_RX_THRESHOLD);
-			} else {
+			} else if (intr_status & ZYNQ_QSPI_IXR_TXNFULL_MASK) {
 				int tmp;
+
 				tmp = xqspi->bytes_to_transfer;
 				zynq_qspi_copy_write_data(xqspi, &data,
 					xqspi->bytes_to_transfer);
 
-				if (!xqspi->is_dual || xqspi->is_instr)
+				if (!xqspi->is_parallel || xqspi->is_instr)
 					zynq_qspi_write(xqspi,
 							offset[tmp - 1], data);
 				else {
@@ -574,19 +537,19 @@ static irqreturn_t zynq_qspi_irq(int irq, void *dev_id)
 }
 
 /**
- * zynq_qspi_start_transfer - Initiates the QSPI transfer
+ * zynq_qspi_transfer_one - Initiates the QSPI transfer
  * @qspi:	Pointer to the spi_device structure
  * @transfer:	Pointer to the spi_transfer structure which provide information
- *		about next transfer parameters
+ * 		about next transfer parameters
  *
  * This function fills the TX FIFO, starts the QSPI transfer, and waits for the
  * transfer to be completed.
  *
  * Return:	Number of bytes transferred in the last transfer
  */
-static int zynq_qspi_start_transfer(struct spi_master *master,
-				    struct spi_device *qspi,
-				    struct spi_transfer *transfer)
+static int zynq_qspi_transfer_one(struct spi_master *master,
+				  struct spi_device *qspi,
+				  struct spi_transfer *transfer)
 {
 	struct zynq_qspi *xqspi = spi_master_get_devdata(master);
 	u32 data;
@@ -603,7 +566,7 @@ static int zynq_qspi_start_transfer(struct spi_master *master,
 	} else {
 		zynq_qspi_copy_write_data(xqspi, &data, transfer->len);
 
-		if (!xqspi->is_dual || xqspi->is_instr)
+		if (!xqspi->is_parallel || xqspi->is_instr)
 			zynq_qspi_write(xqspi, ZYNQ_QSPI_TXD_00_01_OFFSET +
 					((transfer->len - 1) * 4), data);
 		else {
@@ -615,6 +578,45 @@ static int zynq_qspi_start_transfer(struct spi_master *master,
 			ZYNQ_QSPI_IXR_ALL_MASK);
 
 	return transfer->len;
+}
+
+/**
+ * zynq_prepare_transfer_hardware - Prepares hardware for transfer.
+ * @master:	Pointer to the spi_master structure which provides
+ *		information about the controller.
+ *
+ * This function enables SPI master controller.
+ *
+ * Return:	Always 0
+ */
+static int zynq_prepare_transfer_hardware(struct spi_master *master)
+{
+	struct zynq_qspi *xqspi = spi_master_get_devdata(master);
+
+	zynq_qspi_config_clock_mode(master->cur_msg->spi);
+
+	zynq_qspi_write(xqspi, ZYNQ_QSPI_ENABLE_OFFSET,
+			ZYNQ_QSPI_ENABLE_ENABLE_MASK);
+
+	return 0;
+}
+
+/**
+ * zynq_unprepare_transfer_hardware - Relaxes hardware after transfer
+ * @master:	Pointer to the spi_master structure which provides
+ *		information about the controller.
+ *
+ * This function disables the SPI master controller.
+ *
+ * Return:	Always 0
+ */
+static int zynq_unprepare_transfer_hardware(struct spi_master *master)
+{
+	struct zynq_qspi *xqspi = spi_master_get_devdata(master);
+
+	zynq_qspi_write(xqspi, ZYNQ_QSPI_ENABLE_OFFSET, 0);
+
+	return 0;
 }
 
 /**
@@ -630,10 +632,12 @@ static int __maybe_unused zynq_qspi_suspend(struct device *_dev)
 	struct platform_device *pdev = container_of(_dev,
 			struct platform_device, dev);
 	struct spi_master *master = platform_get_drvdata(pdev);
+	struct zynq_qspi *xqspi = spi_master_get_devdata(master);
 
 	spi_master_suspend(master);
 
-	zynq_unprepare_transfer_hardware(master);
+	clk_disable_unprepare(xqspi->refclk);
+	clk_disable_unprepare(xqspi->pclk);
 
 	return 0;
 }
@@ -654,13 +658,13 @@ static int __maybe_unused zynq_qspi_resume(struct device *dev)
 	struct zynq_qspi *xqspi = spi_master_get_devdata(master);
 	int ret = 0;
 
-	ret = clk_enable(xqspi->pclk);
+	ret = clk_prepare_enable(xqspi->pclk);
 	if (ret) {
 		dev_err(dev, "Cannot enable APB clock.\n");
 		return ret;
 	}
 
-	ret = clk_enable(xqspi->refclk);
+	ret = clk_prepare_enable(xqspi->refclk);
 	if (ret) {
 		dev_err(dev, "Cannot enable device clock.\n");
 		clk_disable(xqspi->pclk);
@@ -689,7 +693,7 @@ static int zynq_qspi_probe(struct platform_device *pdev)
 	struct spi_master *master;
 	struct zynq_qspi *xqspi;
 	struct resource *res;
-	u32 num_cs;
+	u32 num_cs, qspi_mode;
 
 	master = spi_alloc_master(&pdev->dev, sizeof(*xqspi));
 	if (master == NULL)
@@ -706,9 +710,18 @@ static int zynq_qspi_probe(struct platform_device *pdev)
 		goto remove_master;
 	}
 
-	if (of_property_read_u32(pdev->dev.of_node, "is-dual", &xqspi->is_dual))
-		dev_warn(&pdev->dev, "couldn't determine configuration info "
-			 "about dual memories. defaulting to single memory\n");
+	if (of_property_read_u32(pdev->dev.of_node, "xlnx,qspi-mode",
+				&qspi_mode) < 0)
+		dev_warn(&pdev->dev,
+				"qspi-mode not found; defaulting to single\n");
+
+	/* Default single mode */
+	xqspi->is_parallel = 0;
+	xqspi->is_stacked = 0;
+	if (qspi_mode == 1)
+		xqspi->is_stacked = 1;
+	else if (qspi_mode == 2)
+		xqspi->is_parallel = 1;
 
 	xqspi->pclk = devm_clk_get(&pdev->dev, "pclk");
 	if (IS_ERR(xqspi->pclk)) {
@@ -760,9 +773,8 @@ static int zynq_qspi_probe(struct platform_device *pdev)
 	else
 		master->num_chipselect = num_cs;
 
-	master->setup = zynq_qspi_setup;
 	master->set_cs = zynq_qspi_chipselect;
-	master->transfer_one = zynq_qspi_start_transfer;
+	master->transfer_one = zynq_qspi_transfer_one;
 	master->prepare_transfer_hardware = zynq_prepare_transfer_hardware;
 	master->unprepare_transfer_hardware = zynq_unprepare_transfer_hardware;
 	master->flags = SPI_MASTER_QUAD_MODE;
@@ -814,7 +826,7 @@ static int zynq_qspi_remove(struct platform_device *pdev)
 	return 0;
 }
 
-static struct of_device_id zynq_qspi_of_match[] = {
+static const struct of_device_id zynq_qspi_of_match[] = {
 	{ .compatible = "xlnx,zynq-qspi-1.0", },
 	{ /* end of table */ }
 };
