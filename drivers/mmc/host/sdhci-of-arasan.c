@@ -20,7 +20,10 @@
  */
 
 #include <linux/module.h>
+#include <linux/of.h>
 #include "sdhci-pltfm.h"
+
+#include "sdhci.h" // to read capabilities from the host
 
 #define SDHCI_ARASAN_CLK_CTRL_OFFSET	0x2c
 
@@ -169,6 +172,28 @@ static int sdhci_arasan_probe(struct platform_device *pdev)
 	pltfm_host = sdhci_priv(host);
 	pltfm_host->priv = sdhci_arasan;
 	pltfm_host->clk = clk_xin;
+
+	{
+		struct device_node *np = pdev->dev.of_node;
+		u32 emio;
+
+		if (of_device_is_available(np)) {
+			if (of_property_read_u32(np,"xlnx,emio",&emio) == 0 &&
+					emio) {
+				dev_info(&pdev->dev, "SD routed through EMIO: Disabling SDHCI High-speed\n");
+				/* The SD lines have been routed through the Zynq EMIO interface
+				 * which is limited to 25MHz.  Spoof the SDHCI caps to remove
+				 * high-speed support.
+				 */
+				host->quirks |= SDHCI_QUIRK_MISSING_CAPS;
+				// WARNING: This may fail because sdhci_reset() is not called before
+				host->caps = sdhci_readl(host, SDHCI_CAPABILITIES) & ~(SDHCI_CAN_DO_HISPD);
+				host->caps1 = sdhci_readl(host, SDHCI_CAPABILITIES_1);
+			} else if (!emio) {
+				dev_info(&pdev->dev, "SD routed through MIO: SDHCI High-speed enabled\n");
+			}
+		}
+	}
 
 	ret = sdhci_add_host(host);
 	if (ret) {
