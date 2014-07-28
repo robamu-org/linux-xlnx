@@ -175,11 +175,10 @@ static int sdhci_arasan_probe(struct platform_device *pdev)
 
 	{
 		struct device_node *np = pdev->dev.of_node;
-		u32 emio;
+		u32 emio = 0;
 
-		if (of_device_is_available(np)) {
-			if (of_property_read_u32(np,"xlnx,emio",&emio) == 0 &&
-					emio) {
+		if (of_device_is_available(np) && of_property_read_u32(np,"xlnx,emio",&emio) == 0) {
+			if (emio) {
 				dev_info(&pdev->dev, "SD routed through EMIO: Disabling SDHCI High-speed\n");
 				/* The SD lines have been routed through the Zynq EMIO interface
 				 * which is limited to 25MHz.  Spoof the SDHCI caps to remove
@@ -189,7 +188,7 @@ static int sdhci_arasan_probe(struct platform_device *pdev)
 				// WARNING: This may fail because sdhci_reset() is not called before
 				host->caps = sdhci_readl(host, SDHCI_CAPABILITIES) & ~(SDHCI_CAN_DO_HISPD);
 				host->caps1 = sdhci_readl(host, SDHCI_CAPABILITIES_1);
-			} else if (!emio) {
+			} else {
 				dev_info(&pdev->dev, "SD routed through MIO: SDHCI High-speed enabled\n");
 			}
 		}
