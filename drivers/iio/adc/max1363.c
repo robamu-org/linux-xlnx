@@ -1561,7 +1561,7 @@ static int max1363_probe(struct i2c_client *client,
 
 	st->vref_uv = st->chip_info->int_vref_mv * 1000;
 	vref = devm_regulator_get_optional(&client->dev, "vref");
-	if (!IS_ERR(vref)) {
+	if (!IS_ERR_OR_NULL(vref)) {
 		int vref_uv;
 
 		ret = regulator_enable(vref);
