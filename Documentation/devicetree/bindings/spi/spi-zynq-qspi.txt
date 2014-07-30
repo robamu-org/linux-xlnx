@@ -13,16 +13,14 @@ Required properties:
 
 Optional properties:
 - num-cs		: Number of chip selects used.
-- xlnx,qspi-mode	: Single - 0; Dual Stacked - 1; Dual Parallel - 2.
 
 Example:
 	qspi@e000d000 {
 		compatible = "xlnx,zynq-qspi-1.0";
 		clock-names = "ref_clk", "pclk";
-		clocks = <&amp;clkc 10>, <&amp;clkc 43>;
-		interrupt-parent = <&amp;intc>;
+		clocks = <&clkc 10>, <&clkc 43>;
+		interrupt-parent = <&intc>;
 		interrupts = <0 19 4>;
 		num-cs = <1>;
-		xlnx,qspi-mode = <0x0>;
 		reg = <0xe000d000 0x1000>;
 	} ;
