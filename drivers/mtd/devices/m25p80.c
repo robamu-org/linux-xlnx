@@ -1744,6 +1744,9 @@ static int m25p_probe(struct spi_device *spi)
 				dev_warn(&spi->dev, "failed to read ear reg\n");
 			else
 				flash->curbank = status & EAR_SEGMENT_MASK;
+			// Disable small erase to enable UBI
+			flash->erase_opcode = OPCODE_SE;
+			flash->mtd.erasesize = info->sector_size;
 		} else {
 #endif
 		flash->addr_width = 4;
