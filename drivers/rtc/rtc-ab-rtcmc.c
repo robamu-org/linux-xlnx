@@ -46,14 +46,23 @@
 
 
 /* Alarm Page 00010 */
-#define ABRTCMC_REG_ALARM_SECOND      0x10
-#define ABRTCMC_REG_ALARM_MINUTE      0x11
-#define ABRTCMC_REG_ALARM_HOUR        0x12
-#define ABRTCMC_REG_ALARM_DAYS        0x13
-#define ABRTCMC_REG_ALARM_WEEKDAY     0x14
-#define ABRTCMC_REG_ALARM_MONTHS      0x15
-#define ABRTCMC_REG_ALARM_YEAR        0x16
-#define ABRTCMC_REG_ALARM_YEAR        0x16
+#define ABRTCMC_REG_ALARM_BASE 0x10
+
+#define ABRTCMC_ALARM_SECOND      0x00
+#define ABRTCMC_ALARM_MINUTE      0x01
+#define ABRTCMC_ALARM_HOUR        0x02
+#define ABRTCMC_ALARM_DAY         0x03
+#define ABRTCMC_ALARM_WEEKDAY     0x04
+#define ABRTCMC_ALARM_MONTH       0x05
+#define ABRTCMC_ALARM_YEAR        0x06
+
+#define ABRTCMC_REG_ALARM_SECOND        (ABRTCMC_REG_ALARM_BASE + ABRTCMC_ALARM_SECOND)
+#define ABRTCMC_REG_ALARM_MINUTE        (ABRTCMC_REG_ALARM_BASE + ABRTCMC_ALARM_MINUTE)
+#define ABRTCMC_REG_ALARM_HOUR          (ABRTCMC_REG_ALARM_BASE + ABRTCMC_ALARM_HOUR)
+#define ABRTCMC_REG_ALARM_DAY           (ABRTCMC_REG_ALARM_BASE + ABRTCMC_ALARM_DAY)
+#define ABRTCMC_REG_ALARM_WEEKDAY       (ABRTCMC_REG_ALARM_BASE + ABRTCMC_ALARM_WEEKDAY)
+#define ABRTCMC_REG_ALARM_MONTH         (ABRTCMC_REG_ALARM_BASE + ABRTCMC_ALARM_MONTH)
+#define ABRTCMC_REG_ALARM_YEAR          (ABRTCMC_REG_ALARM_BASE + ABRTCMC_ALARM_YEAR)
 
 /* Timer Page 00011 */
 #define ABRTCMC_REG_TIMER_LOW         0x18
@@ -226,9 +235,100 @@ static int abrtcmc_set_time(struct device *dev, struct rtc_time *tm)
 	return abrtcmc_set_datetime(to_i2c_client(dev), tm);
 }
 
+static int abrtcmc_get_alarm(struct i2c_client *client, struct rtc_wkalrm *alarm)
+{
+	struct rtc_time *const tm = &alarm->time;
+	uint8_t buf[7];
+	int ret, ctrl;
+
+	ret = abrtcmc_read_regs(client, ABRTCMC_REG_ALARM_BASE, buf, sizeof(buf));
+	if (ret)
+		return ret;
+
+	tm->tm_sec = bcd2bin(buf[ABRTCMC_ALARM_SECOND] & 0x7F);
+	tm->tm_min = bcd2bin(buf[ABRTCMC_ALARM_MINUTE] & 0x7F);
+	tm->tm_hour = bcd2bin(buf[ABRTCMC_ALARM_HOUR] & 0x3F);
+	tm->tm_mday = bcd2bin(buf[ABRTCMC_ALARM_DAY] & 0x3F);
+	tm->tm_wday = (buf[ABRTCMC_ALARM_WEEKDAY] & 0x07) - 1;
+	tm->tm_mon = bcd2bin(buf[ABRTCMC_ALARM_MONTH] & 0x1F);
+	tm->tm_year = bcd2bin(buf[ABRTCMC_ALARM_YEAR] & 0x7f) + 100;
+
+	/* Checking if alarm enabled */
+	ctrl = abrtcmc_read_regs(client, ABRTCMC_REG_CONTROL_INT, buf, 1);
+
+	if(ctrl){
+		dev_err(&client->dev, "%s: reading alarm control failed\n",
+                        __func__);
+
+		return ctrl;
+	}
+
+	alarm->enabled = (buf[0] & 0x01);
+
+	return 0;
+}
+
+static int abrtcmc_rtc_read_alarm(struct device *dev, struct rtc_wkalrm *alarm)
+{
+	return abrtcmc_get_alarm(to_i2c_client(dev), alarm);
+}
+
+static int abrtcmc_set_alarm(struct i2c_client *client, struct rtc_wkalrm *alarm)
+{
+	struct rtc_time *const tm = &alarm->time;
+	size_t i;
+	int ret;
+	uint8_t buf[7];
+
+	/* hours, minutes and seconds */
+	buf[ABRTCMC_ALARM_SECOND]  = bin2bcd(tm->tm_sec);
+	buf[ABRTCMC_ALARM_MINUTE] = bin2bcd(tm->tm_min);
+	buf[ABRTCMC_ALARM_HOUR]   = bin2bcd(tm->tm_hour);
+
+	buf[ABRTCMC_ALARM_DAY] = bin2bcd(tm->tm_mday);
+
+
+	/* month, 1 - 12 */
+	buf[ABRTCMC_ALARM_MONTH] = bin2bcd(tm->tm_mon);
+
+	/* year and century */
+	buf[ABRTCMC_ALARM_YEAR] = bin2bcd(tm->tm_year % 100);
+
+	buf[ABRTCMC_ALARM_WEEKDAY] = (tm->tm_wday & 0x07) + 1;
+
+	/* write register's data */
+	for (i = 0; i < ARRAY_SIZE(buf); i++) {
+		ret = abrtcmc_write_reg(client, ABRTCMC_REG_ALARM_BASE + i,
+					 buf[i]);
+		if (ret)
+			return -EIO;
+	}
+
+	/* Enable the alarm */
+	ret = abrtcmc_read_regs(client, ABRTCMC_REG_CONTROL_INT, buf, 1);
+	if (ret)
+		return ret;
+
+	buf[1] = buf[0] | 0x01;
+
+	ret = abrtcmc_write_reg(client,ABRTCMC_REG_CONTROL_INT, buf[1]);
+	if (ret)
+		return ret;
+
+	return 0;
+}
+
+
+static int abrtcmc_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alarm)
+{
+	return abrtcmc_set_alarm(to_i2c_client(dev), alarm);
+}
+
 static const struct rtc_class_ops abrtcmc_rtc_ops = {
 	.read_time = abrtcmc_get_time,
 	.set_time = abrtcmc_set_time,
+	.read_alarm = abrtcmc_rtc_read_alarm,
+	.set_alarm = abrtcmc_rtc_set_alarm,
 };
 
 static int abrtcmc_rtc_probe(struct i2c_client *client,
