@@ -331,10 +331,37 @@ static const struct rtc_class_ops abrtcmc_rtc_ops = {
 	.set_alarm = abrtcmc_rtc_set_alarm,
 };
 
+/* sysfs interface */
+static ssize_t abrtcmc_sysfs_show_temperature(struct device *dev,
+				       struct device_attribute *attr, char *buf)
+{
+	int ret;
+	int8_t data;
+
+	/* sysfs build from the kobj of the rtc device not from the i2c*/
+	ret = abrtcmc_read_regs(to_i2c_client(dev->parent), ABRTCMC_REG_TEMPERATURE, &data, 1);
+	if (ret)
+		return ret;
+	data -= 60;
+	return sprintf(buf, "%d\n", data);
+}
+
+static DEVICE_ATTR(temperature, 0444, abrtcmc_sysfs_show_temperature, NULL);
+
+static struct attribute *abrtcmc_attrs [] = {
+	&dev_attr_temperature.attr,
+	NULL
+};
+
+static const struct attribute_group abrtcmc_rtc_sysfs_files = {
+	.attrs = abrtcmc_attrs,
+};
+
 static int abrtcmc_rtc_probe(struct i2c_client *client,
 			  const struct i2c_device_id *id)
 {
 	struct ab_rtcmc *abrtcmc;
+	int ret;
 
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C))
 		return -ENODEV;
@@ -351,7 +378,29 @@ static int abrtcmc_rtc_probe(struct i2c_client *client,
 	abrtcmc->rtc = devm_rtc_device_register(&client->dev,
 					abrtcmc_driver.driver.name,
 					&abrtcmc_rtc_ops, THIS_MODULE);
+
+	ret = sysfs_create_group(&abrtcmc->rtc->dev.kobj,
+						&abrtcmc_rtc_sysfs_files);
+
+	if (ret)
+		return ret;
+
 	return PTR_ERR_OR_ZERO(abrtcmc->rtc);
+}
+
+static int
+abrtcmc_remove(struct i2c_client *client)
+{
+	struct ab_rtcmc *abrtcmc;
+
+	abrtcmc = devm_kzalloc(&client->dev, sizeof(struct ab_rtcmc),
+				GFP_KERNEL);
+	if(!abrtcmc)
+		return -ENOMEM;
+
+	sysfs_remove_group(&abrtcmc->rtc->dev.kobj, &abrtcmc_rtc_sysfs_files);
+
+	return 0;
 }
 
 static const struct i2c_device_id abrtcmc_id[] = {
@@ -365,8 +414,9 @@ static struct i2c_driver abrtcmc_driver = {
 	.driver = {
 		.name = "rtc-ab-rtcmc",
 	},
-  .probe = abrtcmc_rtc_probe,
-  .id_table = abrtcmc_id,
+	.probe = abrtcmc_rtc_probe,
+	.remove = abrtcmc_remove,
+	.id_table = abrtcmc_id,
 };
 
 module_i2c_driver(abrtcmc_driver);
