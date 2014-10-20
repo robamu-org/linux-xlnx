@@ -263,7 +263,19 @@ static int abrtcmc_get_alarm(struct i2c_client *client, struct rtc_wkalrm *alarm
 		return ctrl;
 	}
 
-	alarm->enabled = (buf[0] & 0x01);
+	alarm->enabled = (buf[0] & 0x01) ? 1 : 0 ;
+
+	/* Checking if an alarm is pending */
+	ctrl = abrtcmc_read_regs(client, ABRTCMC_REG_CONTROL_INTFLAG, buf, 1);
+
+	if(ctrl){
+		dev_err(&client->dev, "%s: reading alarm flags failed\n",
+                        __func__);
+
+		return ctrl;
+	}
+
+	alarm->pending = (buf[0] & 0x01) ? 1 : 0;
 
 	return 0;
 }
@@ -309,7 +321,10 @@ static int abrtcmc_set_alarm(struct i2c_client *client, struct rtc_wkalrm *alarm
 	if (ret)
 		return ret;
 
-	buf[1] = buf[0] | 0x01;
+	if (alarm->enabled)
+		buf[1] = buf[0] | 0x01;
+	else
+		buf[1] = buf[0] & ~(0x01);
 
 	ret = abrtcmc_write_reg(client,ABRTCMC_REG_CONTROL_INT, buf[1]);
 	if (ret)
@@ -362,6 +377,7 @@ static int abrtcmc_rtc_probe(struct i2c_client *client,
 {
 	struct ab_rtcmc *abrtcmc;
 	int ret;
+	uint8_t buf;
 
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C))
 		return -ENODEV;
@@ -379,6 +395,21 @@ static int abrtcmc_rtc_probe(struct i2c_client *client,
 					abrtcmc_driver.driver.name,
 					&abrtcmc_rtc_ops, THIS_MODULE);
 
+	/* deactivating interrupt */
+	abrtcmc->rtc->uie_unsupported = 1;
+
+	/* Clearing Alarm flag */
+	ret = abrtcmc_read_regs(client, ABRTCMC_REG_CONTROL_INTFLAG, &buf, 1);
+	if (ret)
+		return ret;
+
+	buf &= ~(0x01);
+
+	ret = abrtcmc_write_reg(client,ABRTCMC_REG_CONTROL_INTFLAG, buf);
+	if (ret)
+		return ret;
+
+	/* Creating sysfs */
 	ret = sysfs_create_group(&abrtcmc->rtc->dev.kobj,
 						&abrtcmc_rtc_sysfs_files);
 
