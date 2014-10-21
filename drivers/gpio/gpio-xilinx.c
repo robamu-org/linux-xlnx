@@ -393,10 +393,6 @@ static int xgpio_irq_setup(struct device_node *np, struct xgpio_instance *chip)
 		return 0;
 	}
 
-	chip->mmchip.gc.of_xlate = xgpio_xlate;
-	chip->mmchip.gc.of_gpio_n_cells = 2;
-	chip->mmchip.gc.to_irq = xgpio_to_irq;
-
 	chip->irq_base = irq_alloc_descs(-1, 0, chip->mmchip.gc.ngpio, 0);
 	if (chip->irq_base < 0) {
 		pr_err("Couldn't allocate IRQ numbers\n");
@@ -483,6 +479,10 @@ static int xgpio_of_probe(struct platform_device *pdev)
 		return status;
 	}
 
+	chip->mmchip.gc.of_xlate = xgpio_xlate;
+	chip->mmchip.gc.of_gpio_n_cells = 2;
+	chip->mmchip.gc.to_irq = xgpio_to_irq;
+
 	status = xgpio_irq_setup(np, chip);
 	if (status) {
 		pr_err("%s: GPIO IRQ initialization failed %d\n",
@@ -525,6 +525,9 @@ static int xgpio_of_probe(struct platform_device *pdev)
 		chip->mmchip.gc.direction_output = xgpio_dir_out;
 		chip->mmchip.gc.get = xgpio_get;
 		chip->mmchip.gc.set = xgpio_set;
+		chip->mmchip.gc.of_xlate = xgpio_xlate;
+		chip->mmchip.gc.of_gpio_n_cells = 2;
+		chip->mmchip.gc.to_irq = xgpio_to_irq;
 
 		chip->mmchip.save_regs = xgpio_save_regs;
 
