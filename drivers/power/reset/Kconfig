@@ -57,3 +57,11 @@ config POWER_RESET_XGENE
 	depends on POWER_RESET
 	help
 	  Reboot support for the APM SoC X-Gene Eval boards.
+
+config POWER_RESET_Q7
+	bool "Xiphos Q7 GPIO Restart"
+	depends on ARCH_ZYNQ && POWER_RESET
+	help
+	  Q7 reset is controlled through an onboard ProASIC3. The internal
+		bus presents as GPIO that can be used to power-cycle the Q7 or
+		reconfigure the Zynq.
