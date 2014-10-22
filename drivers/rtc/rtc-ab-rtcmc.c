@@ -310,8 +310,10 @@ static int abrtcmc_set_alarm(struct i2c_client *client, struct rtc_wkalrm *alarm
 
 	/* write register's data */
 	for (i = 0; i < ARRAY_SIZE(buf); i++) {
+		// Add the enable bit for all registers since this is provided
+		// as an absolute wakeup alarm
 		ret = abrtcmc_write_reg(client, ABRTCMC_REG_ALARM_BASE + i,
-					 buf[i]);
+					 buf[i] | 0x80);
 		if (ret)
 			return -EIO;
 	}
