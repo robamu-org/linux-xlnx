@@ -353,7 +353,7 @@ static ssize_t abrtcmc_sysfs_show_temp(struct device *dev,
 				       struct device_attribute *attr, char *buf)
 {
 	int ret;
-	uint8_t data;
+	int8_t data;
 
 	/* sysfs build from the kobj of the rtc device not from the i2c*/
 	ret = abrtcmc_read_regs(to_i2c_client(dev->parent), ABRTCMC_REG_TEMPERATURE, &data, 1);
