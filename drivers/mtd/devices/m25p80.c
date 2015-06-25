@@ -79,13 +79,13 @@
 #define	SR_WIP			1	/* Write in progress */
 #define	SR_WEL			2	/* Write enable latch */
 /* meaning of other SR_* bits may differ between vendors */
-#define	SR_BP0			4	/* Block protect 0 */
-#define	SR_BP1			8	/* Block protect 1 */
+#define	SR_BP0			0x4	/* Block protect 0 */
+#define	SR_BP1			0x8	/* Block protect 1 */
 #define	SR_BP2			0x10	/* Block protect 2 */
+#define	SR_BP3			0x40	/* Block protect 3 */
 #define	SR_BP_BIT_OFFSET	2	/* Offset to Block protect 0 */
-#define	SR_BP_BIT_MASK		(SR_BP2 | SR_BP1 | SR_BP0)
+#define	SR_BP_BIT_MASK		(SR_BP3 | SR_BP2 | SR_BP1 | SR_BP0)
 #define	SR_SRWD			0x80	/* SR write protect */
-#define SR_BP3			0x40
 /* Bit to determine whether protection starts from top or bottom */
 #define SR_BP_TB		0x20
 
@@ -1043,7 +1043,7 @@ static uint8_t min_protected_area_including_offset(struct m25p *flash,
 	/*
 	 * Revisit - SST (not used by us) has the same JEDEC ID as micron but
 	 * protected area table is similar to that of spansion.
-	 * Mircon has 4 block protect bits.
+	 * Micron has 4 block protect bits.
 	 */
 	lockbits_limit = 7;
 	if (JEDEC_MFR(flash->jedec_id) == 0x20)	/* Micron */
