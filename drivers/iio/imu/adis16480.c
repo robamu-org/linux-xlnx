@@ -111,6 +111,10 @@
 struct adis16480_chip_info {
 	unsigned int num_channels;
 	const struct iio_chan_spec *channels;
+	unsigned int gyro_max_val;
+	unsigned int gyro_max_scale;
+	unsigned int accel_max_val;
+	unsigned int accel_max_scale;
 };
 
 struct adis16480 {
@@ -194,6 +198,24 @@ static int adis16480_show_serial_number(void *arg, u64 *val)
 DEFINE_SIMPLE_ATTRIBUTE(adis16480_serial_number_fops,
 	adis16480_show_serial_number, NULL, "0x%.4llx\n");
 
+static int adis16480_show_system_status(void *arg, u64 *val)
+{
+	struct adis16480 *adis16480 = arg;
+	u16 sys_status;
+	int ret;
+
+	ret = adis_read_reg_16(&adis16480->adis, ADIS16480_REG_SYS_E_FLA,
+		&sys_status);
+	if (ret < 0)
+		return ret;
+
+	*val = sys_status;
+
+	return 0;
+}
+DEFINE_SIMPLE_ATTRIBUTE(adis16480_system_status_fops,
+	adis16480_show_system_status, NULL, "0x%.4llx\n");
+
 static int adis16480_show_product_id(void *arg, u64 *val)
 {
 	struct adis16480 *adis16480 = arg;
@@ -245,7 +267,8 @@ static int adis16480_debugfs_init(struct iio_dev *indio_dev)
 		adis16480, &adis16480_product_id_fops);
 	debugfs_create_file("flash_count", 0400, indio_dev->debugfs_dentry,
 		adis16480, &adis16480_flash_count_fops);
-
+	debugfs_create_file("system_status", 0400, indio_dev->debugfs_dentry,
+		adis16480, &adis16480_system_status_fops);
 	return 0;
 }
 
@@ -534,19 +557,21 @@ static int adis16480_set_filter_freq(struct iio_dev *indio_dev,
 static int adis16480_read_raw(struct iio_dev *indio_dev,
 	const struct iio_chan_spec *chan, int *val, int *val2, long info)
 {
+	struct adis16480 *st = iio_priv(indio_dev);
+
 	switch (info) {
 	case IIO_CHAN_INFO_RAW:
 		return adis_single_conversion(indio_dev, chan, 0, val);
 	case IIO_CHAN_INFO_SCALE:
 		switch (chan->type) {
 		case IIO_ANGL_VEL:
-			*val = 0;
-			*val2 = IIO_DEGREE_TO_RAD(20000); /* 0.02 degree/sec */
-			return IIO_VAL_INT_PLUS_MICRO;
+			*val = st->chip_info->gyro_max_scale;
+			*val2 = st->chip_info->gyro_max_val;
+			return IIO_VAL_FRACTIONAL;
 		case IIO_ACCEL:
-			*val = 0;
-			*val2 = IIO_G_TO_M_S_2(800); /* 0.8 mg */
-			return IIO_VAL_INT_PLUS_MICRO;
+			*val = st->chip_info->accel_max_scale;
+			*val2 = st->chip_info->accel_max_val;
+			return IIO_VAL_FRACTIONAL;
 		case IIO_MAGN:
 			*val = 0;
 			*val2 = 100; /* 0.0001 gauss */
@@ -703,18 +728,39 @@ static const struct adis16480_chip_info adis16480_chip_info[] = {
 	[ADIS16375] = {
 		.channels = adis16485_channels,
 		.num_channels = ARRAY_SIZE(adis16485_channels),
+		/*
+		 * storing the value in rad/degree and the scale in degree
+		 * gives us the result in rad and better precession than
+		 * storing the scale directly in rad.
+		 */
+		.gyro_max_val = IIO_RAD_TO_DEGREE(22887),
+		.gyro_max_scale = 300,
+		.accel_max_val = IIO_M_S_2_TO_G(21973),
+		.accel_max_scale = 18,
 	},
 	[ADIS16480] = {
 		.channels = adis16480_channels,
 		.num_channels = ARRAY_SIZE(adis16480_channels),
+		.gyro_max_val = IIO_RAD_TO_DEGREE(22500),
+		.gyro_max_scale = 450,
+		.accel_max_val = IIO_M_S_2_TO_G(12500),
+		.accel_max_scale = 5,
 	},
 	[ADIS16485] = {
 		.channels = adis16485_channels,
 		.num_channels = ARRAY_SIZE(adis16485_channels),
+		.gyro_max_val = IIO_RAD_TO_DEGREE(22500),
+		.gyro_max_scale = 450,
+		.accel_max_val = IIO_M_S_2_TO_G(20000),
+		.accel_max_scale = 5,
 	},
 	[ADIS16488] = {
 		.channels = adis16480_channels,
 		.num_channels = ARRAY_SIZE(adis16480_channels),
+		.gyro_max_val = IIO_RAD_TO_DEGREE(22500),
+		.gyro_max_scale = 450,
+		.accel_max_val = IIO_M_S_2_TO_G(22500),
+		.accel_max_scale = 18,
 	},
 };
 
@@ -750,8 +796,19 @@ static int adis16480_stop_device(struct iio_dev *indio_dev)
 
 static int adis16480_enable_irq(struct adis *adis, bool enable)
 {
-	return adis_write_reg_16(adis, ADIS16480_REG_FNCTIO_CTRL,
-		enable ? BIT(3) : 0);
+	u16 fnctio_ctrl;
+	int ret;
+
+	ret = adis_read_reg_16(adis, ADIS16480_REG_FNCTIO_CTRL, &fnctio_ctrl);
+	if (ret < 0)
+		return ret;
+
+	if (enable)
+		fnctio_ctrl |= BIT(3);
+	else
+		fnctio_ctrl &= ~BIT(3);
+
+	return adis_write_reg_16(adis, ADIS16480_REG_FNCTIO_CTRL, fnctio_ctrl);
 }
 
 static int adis16480_initial_setup(struct iio_dev *indio_dev)
