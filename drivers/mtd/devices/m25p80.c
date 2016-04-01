@@ -730,7 +730,8 @@ static int m25p80_read_ext(struct mtd_info *mtd, loff_t from, size_t len,
 	u32 read_count = 0;
 	u32 rem_bank_len = 0;
 	u8 bank = 0;
-
+	int ret = 0;
+	
 #define OFFSET_16_MB 0x1000000
 
 	mutex_lock(&flash->lock);
@@ -756,7 +757,8 @@ static int m25p80_read_ext(struct mtd_info *mtd, loff_t from, size_t len,
 		else
 			read_len = rem_bank_len;
 
-		m25p80_read(mtd, offset, read_len, &actual_len, buf);
+		ret = m25p80_read(mtd, offset, read_len, &actual_len, buf);
+		if (ret) goto bye;
 
 		addr += actual_len;
 		len -= actual_len;
@@ -764,10 +766,11 @@ static int m25p80_read_ext(struct mtd_info *mtd, loff_t from, size_t len,
 		read_count += actual_len;
 	}
 
+bye:
 	*retlen = read_count;
 
 	mutex_unlock(&flash->lock);
-	return 0;
+	return ret;
 }
 
 /*
@@ -864,7 +867,8 @@ static int m25p80_write_ext(struct mtd_info *mtd, loff_t to, size_t len,
 	u32 write_count = 0;
 	u32 rem_bank_len = 0;
 	u8 bank = 0;
-
+	int ret = 0;
+	
 #define OFFSET_16_MB 0x1000000
 
 	mutex_lock(&flash->lock);
@@ -888,7 +892,8 @@ static int m25p80_write_ext(struct mtd_info *mtd, loff_t to, size_t len,
 		else
 			write_len = rem_bank_len;
 
-		m25p80_write(mtd, offset, write_len, &actual_len, buf);
+		ret = m25p80_write(mtd, offset, write_len, &actual_len, buf);
+		if (ret) goto bye;
 
 		addr += actual_len;
 		len -= actual_len;
@@ -896,10 +901,11 @@ static int m25p80_write_ext(struct mtd_info *mtd, loff_t to, size_t len,
 		write_count += actual_len;
 	}
 
+bye:
 	*retlen = write_count;
 
 	mutex_unlock(&flash->lock);
-	return 0;
+	return ret;
 }
 
 static int sst_write(struct mtd_info *mtd, loff_t to, size_t len,
