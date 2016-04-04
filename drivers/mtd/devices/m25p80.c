@@ -112,6 +112,10 @@
 
 #define JEDEC_MFR(_jedec_id)	((_jedec_id) >> 16)
 
+/* Some QSPI chips lock up when using large transfer (>2 MB) transfer
+   sizes. This sets a limit. */
+#define MAX_TRANSFER_LENGTH	0x100000
+
 /****************************************************************************/
 
 enum read_type {
@@ -672,7 +676,7 @@ static inline unsigned int m25p80_rx_nbits(const struct m25p *flash)
  * Read an address range from the flash chip.  The address range
  * may be any size provided it is within the physical boundaries.
  */
-static int m25p80_read(struct mtd_info *mtd, loff_t from, size_t len,
+static int m25p80_read_inner(struct mtd_info *mtd, loff_t from, size_t len,
 	size_t *retlen, u_char *buf)
 {
 	struct m25p *flash = mtd_to_m25p(mtd);
@@ -716,6 +720,38 @@ static int m25p80_read(struct mtd_info *mtd, loff_t from, size_t len,
 
 	*retlen = m.actual_length - m25p_cmdsz(flash) - dummy;
 
+	return 0;
+}
+
+/*
+ * Read an address range from the flash chip.  The address range
+ * may be any size provided it is within the physical boundaries.
+ */
+static int m25p80_read(struct mtd_info *mtd, loff_t from, size_t len,
+		       size_t *retlen, u_char *buf)
+{
+	size_t this_len, retlen_curr;
+	int ret;
+
+	*retlen = 0;
+  
+	while (len > 0) {
+		this_len = len < MAX_TRANSFER_LENGTH ?
+			len : MAX_TRANSFER_LENGTH;
+
+		ret = m25p80_read_inner(mtd, from, this_len, &retlen_curr, buf);
+		if (ret) return ret;
+
+		*retlen += retlen_curr;
+
+		/* This must indicate that there is no more data? */
+		if (retlen_curr < this_len) break;
+		
+		len -= retlen_curr;
+		from += retlen_curr;
+		buf += retlen_curr;
+	}
+  
 	return 0;
 }
 
@@ -778,7 +814,7 @@ bye:
  * FLASH_PAGESIZE chunks.  The address range may be any size provided
  * it is within the physical boundaries.
  */
-static int m25p80_write(struct mtd_info *mtd, loff_t to, size_t len,
+static int m25p80_write_inner(struct mtd_info *mtd, loff_t to, size_t len,
 	size_t *retlen, const u_char *buf)
 {
 	struct m25p *flash = mtd_to_m25p(mtd);
@@ -853,6 +889,34 @@ static int m25p80_write(struct mtd_info *mtd, loff_t to, size_t len,
 		}
 	}
 
+	return 0;
+}
+
+static int m25p80_write(struct mtd_info *mtd, loff_t to, size_t len,
+		       size_t *retlen, const u_char *buf)
+{
+	size_t this_len, retlen_curr;
+	int ret;
+
+	*retlen = 0;
+  
+	while (len > 0) {
+		this_len = len < MAX_TRANSFER_LENGTH ?
+			len : MAX_TRANSFER_LENGTH;
+
+		ret = m25p80_write_inner(mtd, to, this_len, &retlen_curr, buf);
+		if (ret) return ret;
+
+		*retlen += retlen_curr;
+
+		/* This must indicate that we were not able to write all the data? */
+		if (retlen_curr < this_len) break;
+		
+		len -= retlen_curr;
+		to += retlen_curr;
+		buf += retlen_curr;
+	}
+  
 	return 0;
 }
 
