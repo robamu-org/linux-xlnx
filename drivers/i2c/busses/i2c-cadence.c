@@ -60,7 +60,10 @@
 
 /* Status Register Bit mask definitions */
 #define CDNS_I2C_SR_BA		BIT(8)
+#define CDNS_I2C_SR_RXOVF	BIT(7)
+#define CDNS_I2C_SR_TXDV	BIT(6)
 #define CDNS_I2C_SR_RXDV	BIT(5)
+#define CDNS_I2C_SR_RXRW	BIT(3)
 
 /*
  * I2C Address Register Bit mask definitions
@@ -167,6 +170,7 @@ struct cdns_i2c {
 	unsigned int bus_hold_flag;
 	struct clk *clk;
 	struct notifier_block clk_rate_change_nb;
+	struct i2c_client *slave;
 };
 
 #define to_cdns_i2c(_nb)	container_of(_nb, struct cdns_i2c, \
@@ -185,6 +189,50 @@ static void cdns_i2c_clear_bus_hold(struct cdns_i2c *id)
 		cdns_i2c_writereg(reg & ~CDNS_I2C_CR_HOLD, CDNS_I2C_CR_OFFSET);
 }
 
+static bool cdns_i2c_slave_irq(struct cdns_i2c *id, unsigned int isr_status)
+{
+	u8 value;
+	u32 reg_SR;
+	u32 n_rx;
+
+	/* Only handle slave mode */
+	if (!id->slave)
+		return false;
+
+	if ((isr_status & CDNS_I2C_IXR_DATA) ||
+		(isr_status & CDNS_I2C_IXR_COMP)) {
+		/* Check if we're in slave receiver or slave transmitter... */
+		reg_SR = cdns_i2c_readreg(CDNS_I2C_SR_OFFSET);
+		if (reg_SR & CDNS_I2C_SR_RXDV) {
+			/* Check how many bytes are in the FIFO */
+			for (n_rx = cdns_i2c_readreg(CDNS_I2C_XFER_SIZE_OFFSET);
+					n_rx; n_rx--) {
+
+				/* Note: the controller register is also
+				 * decremented automatically */
+				value = cdns_i2c_readreg(CDNS_I2C_DATA_OFFSET);
+				i2c_slave_event(id->slave,
+					I2C_SLAVE_REQ_WRITE_END, &value);
+			}
+		}
+		if (reg_SR & CDNS_I2C_SR_RXRW) {
+			i2c_slave_event(id->slave, I2C_SLAVE_REQ_READ_START,
+					&value);
+
+			cdns_i2c_writereg(1, CDNS_I2C_XFER_SIZE_OFFSET);
+			cdns_i2c_writereg(value, CDNS_I2C_DATA_OFFSET);
+
+			i2c_slave_event(id->slave, I2C_SLAVE_REQ_READ_END,
+					&value);
+		}
+	}
+
+	if (isr_status & CDNS_I2C_IXR_COMP) {
+		i2c_slave_event(id->slave, I2C_SLAVE_STOP, &value);
+	}
+
+	return true;
+}
 /**
  * cdns_i2c_isr - Interrupt handler for the I2C device
  * @irq:	irq number for the I2C device
@@ -206,6 +254,11 @@ static irqreturn_t cdns_i2c_isr(int irq, void *ptr)
 
 	isr_status = cdns_i2c_readreg(CDNS_I2C_ISR_OFFSET);
 	cdns_i2c_writereg(isr_status, CDNS_I2C_ISR_OFFSET);
+
+	/* Handling slave mode interrupt */
+	if (cdns_i2c_slave_irq(id, isr_status)) {
+		goto isr_done;
+	}
 
 	/* Handling nack and arbitration lost interrupt */
 	if (isr_status & (CDNS_I2C_IXR_NACK | CDNS_I2C_IXR_ARB_LOST)) {
@@ -301,7 +354,7 @@ static irqreturn_t cdns_i2c_isr(int irq, void *ptr)
 
 		status = IRQ_HANDLED;
 	}
-
+isr_done:
 	/* Update the status for errors */
 	id->err_status = isr_status & CDNS_I2C_IXR_ERR_INTR_MASK;
 	if (id->err_status)
@@ -566,6 +619,64 @@ static int cdns_i2c_master_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs,
 	return num;
 }
 
+static int cdns_reg_slave(struct i2c_client *slave)
+{
+
+	unsigned int ctrl_reg;
+	struct cdns_i2c *id = slave->adapter->algo_data;
+
+	if (id->slave)
+		return -EBUSY;
+
+	/* do we need 10 bit addressing? does the chip support it in slave mode ?*/
+	if (slave->flags & I2C_CLIENT_TEN)
+		return -EAFNOSUPPORT;
+
+	/* disable the interrupts in order to set up */
+	cdns_i2c_writereg(CDNS_I2C_IXR_ALL_INTR_MASK,
+			  CDNS_I2C_IDR_OFFSET);
+
+	id->slave = slave;
+	/* set the slave address */
+	cdns_i2c_writereg(slave->addr & CDNS_I2C_ADDR_MASK,
+					CDNS_I2C_ADDR_OFFSET);
+
+	/* Put the controller in slave receive mode */
+	ctrl_reg = cdns_i2c_readreg(CDNS_I2C_CR_OFFSET);
+	ctrl_reg &= ~CDNS_I2C_CR_MS; /* Not Master */
+	ctrl_reg &= ~CDNS_I2C_CR_HOLD; /* Not Hold */
+	ctrl_reg |= CDNS_I2C_CR_CLR_FIFO; /* Clear FIFO */
+	cdns_i2c_writereg(ctrl_reg, CDNS_I2C_CR_OFFSET);
+	dev_info(id->adap.dev.parent, "I2C Control Register is now: 0x%x\n",
+					ctrl_reg);
+
+	/* Enable the interrupts */
+	cdns_i2c_writereg(CDNS_I2C_ENABLED_INTR_MASK, CDNS_I2C_IER_OFFSET);
+
+	return 0;
+}
+
+static int cdns_unreg_slave(struct i2c_client *slave)
+{
+	struct cdns_i2c *id = slave->adapter->algo_data;
+	unsigned int ctrl_reg;
+
+	WARN_ON(!id->slave);
+
+	/* disable the interrupts */
+	cdns_i2c_writereg(CDNS_I2C_IXR_ALL_INTR_MASK, CDNS_I2C_IDR_OFFSET);
+
+	/* TODO configure chip for master only */
+	id->slave = NULL;
+
+	/* Re-enable master mode like in the probe */
+	ctrl_reg = CDNS_I2C_CR_ACK_EN | CDNS_I2C_CR_NEA | CDNS_I2C_CR_MS;
+	cdns_i2c_writereg(ctrl_reg, CDNS_I2C_CR_OFFSET);
+	dev_info(id->adap.dev.parent, "I2C Control Register is now: 0x%x\n",
+					ctrl_reg);
+	return 0;
+}
+
 /**
  * cdns_i2c_func - Returns the supported features of the I2C driver
  * @adap:	pointer to the i2c adapter structure
@@ -574,7 +685,7 @@ static int cdns_i2c_master_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs,
  */
 static u32 cdns_i2c_func(struct i2c_adapter *adap)
 {
-	return I2C_FUNC_I2C | I2C_FUNC_10BIT_ADDR |
+	return I2C_FUNC_I2C | I2C_FUNC_10BIT_ADDR | I2C_FUNC_SLAVE |
 		(I2C_FUNC_SMBUS_EMUL & ~I2C_FUNC_SMBUS_QUICK) |
 		I2C_FUNC_SMBUS_BLOCK_DATA;
 }
@@ -582,6 +693,8 @@ static u32 cdns_i2c_func(struct i2c_adapter *adap)
 static const struct i2c_algorithm cdns_i2c_algo = {
 	.master_xfer	= cdns_i2c_master_xfer,
 	.functionality	= cdns_i2c_func,
+	.reg_slave	= cdns_reg_slave,
+	.unreg_slave	= cdns_unreg_slave,
 };
 
 /**
