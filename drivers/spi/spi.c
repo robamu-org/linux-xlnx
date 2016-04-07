@@ -612,7 +612,15 @@ static int spi_transfer_one_message(struct spi_master *master,
 
 		if (ret > 0) {
 			ret = 0;
-			ms = xfer->len * 8 * 1000 / xfer->speed_hz;
+			// This will overflow on large xfer->len size:
+			//ms = xfer->len * 8 * 1000 / xfer->speed_hz;
+			//
+			// To work around, divide xfer->speed_hz intead
+			// Division is a bit slower on some arch but should be safer
+			// We use max to avoid ending up with zero but it is probably overkill
+			// 	SPI frequency should always be in the megahertz anyways
+			ms = xfer->len / max((unsigned long)1, (unsigned long)xfer->speed_hz / 8 / 1000);
+
 			ms += ms + 100; /* some tolerance */
 
 			ms = wait_for_completion_timeout(&master->xfer_completion,
