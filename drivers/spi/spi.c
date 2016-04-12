@@ -622,6 +622,9 @@ static int spi_transfer_one_message(struct spi_master *master,
 			ms = xfer->len / max((unsigned long)1, (unsigned long)xfer->speed_hz / 8 / 1000);
 
 			ms += ms + 100; /* some tolerance */
+			
+			// MUCH MUCH more tolerance
+			ms = ms * 3;
 
 			ms = wait_for_completion_timeout(&master->xfer_completion,
 							 msecs_to_jiffies(ms));
