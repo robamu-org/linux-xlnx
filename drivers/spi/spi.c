@@ -622,6 +622,11 @@ static int spi_transfer_one_message(struct spi_master *master,
 			ms = xfer->len / max((unsigned long)1, (unsigned long)xfer->speed_hz / 8 / 1000);
 
 			ms += ms + 100; /* some tolerance */
+			
+			// *** HACK HACK HACK ***
+			// Attempt to investigate SPI timeout issue on m25p80 Quad SPI
+			// Set an overly large timeout value to desactivate the timeout
+			ms = 3600000; // 1 hour
 
 			ms = wait_for_completion_timeout(&master->xfer_completion,
 							 msecs_to_jiffies(ms));
