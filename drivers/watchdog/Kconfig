@@ -813,6 +813,15 @@ config BFIN_WDT
 
 # FRV Architecture
 
+# Xiphos Q6S/Q7S Architecture (with watchdog part in logic)
+config XIPHOS_LOGIC_WATCHDOG_V1
+	tristate "Xiphos Logic Watchdog Version 1"
+	depends on ARM && HAS_IOMEM
+	select WATCHDOG_CORE
+	help
+	  Say Y here if you want to include support for the Q6s/Q7S watchdog.
+	  This watchdog requires an IP core into logic to work.
+
 # X86 (i386 + ia64 + x86_64) Architecture
 
 config ACQUIRE_WDT
