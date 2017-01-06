@@ -666,6 +666,9 @@ static int write_sr_modify_protection(struct spi_nor *nor, uint8_t status,
 
 	status_new |= bp_mask;
 
+	dev_err(nor->dev, "wr sr : old: 0x%02x, new: 0x%02x\n", status,
+		status_new);
+
 	write_enable(nor);
 
 	/* For spansion flashes */
