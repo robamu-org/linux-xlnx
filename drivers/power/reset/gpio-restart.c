@@ -22,6 +22,12 @@
 #include <linux/gpio/consumer.h>
 #include <linux/of_platform.h>
 #include <linux/module.h>
+#include <linux/io.h>
+
+/* Hardcoded addresses and values for restart
+ *  * see gpio_poweroff_do_poweroff() */
+#define XIPHOS_Q7_PA3_CRP_ADDR 0x40000000
+#define XIPHOS_Q7_PA3_CRP_RESTART_VALUE 0x100
 
 struct gpio_restart {
 	struct gpio_desc *reset_gpio;
@@ -34,8 +40,33 @@ struct gpio_restart {
 static int gpio_restart_notify(struct notifier_block *this,
 				unsigned long mode, void *cmd)
 {
+	volatile u32* register_addr = NULL;
+
 	struct gpio_restart *gpio_restart =
 		container_of(this, struct gpio_restart, restart_handler);
+
+    /* EVIL HACK wfb 2017/02/02
+	 * Q7 ProASIC3 logic / device-tree use Xilinx 'dual channel' chips
+	 * Kernel supports is terrible about those; gpio function is not
+	 *  able to get the correct gpio pin from device-tree.
+	 * Worst, forcing the GPIO fails whenever the kernel try to acess
+	 *  a gpio from the second channel (bank).
+	 * The bug is probably somewhere in gpio-xilinx, dual bank was
+	 *  probably never tested.
+	 *
+	 * We will revert buggy dual channel chip to classic single channel
+	 *  in next revision of ProASIC3...
+	 *
+	 * In the meantime, hardcode the ProASIC3 memory address and
+	 *  access that directly.
+	 */
+
+    /* Volatile so it is not optimized out */
+    register_addr = (volatile u32*)ioremap(XIPHOS_Q7_PA3_CRP_ADDR, 4);
+    (*register_addr) = (volatile u32)XIPHOS_Q7_PA3_CRP_RESTART_VALUE;
+    /* If we survived restart failed, give the default code a try */
+
+
 
 	/* drive it active, also inactive->active edge */
 	gpiod_direction_output(gpio_restart->reset_gpio, 1);
