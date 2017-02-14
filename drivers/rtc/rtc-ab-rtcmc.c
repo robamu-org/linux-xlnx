@@ -537,19 +537,20 @@ static int abrtcmc_rtc_probe(struct i2c_client *client,
 
 	i2c_set_clientdata(client, abrtcmc);
 
-	abrtcmc->rtc = devm_rtc_device_register(&client->dev,
-					abrtcmc_driver.driver.name,
-					&abrtcmc_rtc_ops,
-	                                THIS_MODULE);
-	/* Deactivating interrupt */
-	abrtcmc->rtc->uie_unsupported = 1;
-
 	/* This particular RTC initialize its register at random values (!!)
-	   They MUST be sanitized to clear any invalid values */
+	 * They MUST be sanitized to clear any invalid values */
 	ret = abrtcmc_rtc_sanitize_register(client);
 	if (ret) {
 		return ret;
 	}
+
+	/* Register driver to the kernel */
+	abrtcmc->rtc = devm_rtc_device_register(&client->dev,
+	                          abrtcmc_driver.driver.name,
+	                          &abrtcmc_rtc_ops,
+	                          THIS_MODULE);
+	/* Deactivating interrupt */
+	abrtcmc->rtc->uie_unsupported = 1;
 
 	/* Creating sysfs */
 	ret = sysfs_create_group(&abrtcmc->rtc->dev.kobj,
