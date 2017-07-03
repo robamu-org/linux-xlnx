@@ -603,6 +603,7 @@ static inline uint32_t get_protected_area_start(struct spi_nor *nor,
 	u16 n_sectors;
 	u32 sector_size;
 	uint64_t mtd_size;
+	uint32_t protected_area_start;
 	struct mtd_info *mtd = &nor->mtd;
 
 	n_sectors = nor->n_sectors;
@@ -618,8 +619,9 @@ static inline uint32_t get_protected_area_start(struct spi_nor *nor,
 		mtd_size = (mtd->size >> 1);
 	}
 
-	return mtd_size - (1 << (lock_bits - 1)) * sector_size *
+	protected_area_start = mtd_size - (1 << (lock_bits - 1)) * sector_size *
 		min_lockable_sectors(nor, n_sectors);
+	return protected_area_start > 0 ? protected_area_start : 0;
 }
 
 static uint8_t min_protected_area_including_offset(struct spi_nor *nor,
