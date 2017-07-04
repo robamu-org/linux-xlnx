@@ -618,8 +618,8 @@ static inline uint32_t get_protected_area_start(struct spi_nor *nor,
 		mtd_size = (mtd->size >> 1);
 	}
 
-	return mtd_size - (1<<(lock_bits-1)) *
-		min_lockable_sectors(nor, n_sectors) * sector_size;
+	return mtd_size - (1 << (lock_bits - 1)) * sector_size *
+		min_lockable_sectors(nor, n_sectors);
 }
 
 static uint8_t min_protected_area_including_offset(struct spi_nor *nor,
@@ -932,7 +932,7 @@ static int spi_nor_unlock(struct mtd_info *mtd, loff_t ofs, uint64_t len)
 
 	status = read_sr(nor);
 
-	lock_bits = min_protected_area_including_offset(nor, offset+len) - 1;
+	lock_bits = min_protected_area_including_offset(nor, offset + len) - 1;
 
 	/* Only modify protection if it will not lock other areas */
 	if (lock_bits < bp_bits_from_sr(nor, status))
@@ -950,6 +950,7 @@ static int spi_nor_is_locked(struct mtd_info *mtd, loff_t ofs, uint64_t len)
 	struct spi_nor *nor = mtd_to_spi_nor(mtd);
 	uint32_t offset = ofs;
 	uint32_t protected_area_start;
+	uint8_t lock_bits;
 	uint8_t status;
 	int ret;
 
@@ -974,11 +975,12 @@ static int spi_nor_is_locked(struct mtd_info *mtd, loff_t ofs, uint64_t len)
 		goto err;
 	status = read_sr(nor);
 
-	protected_area_start = get_protected_area_start(nor,
-						bp_bits_from_sr(nor, status));
+	lock_bits = bp_bits_from_sr(nor, status);
+	protected_area_start = get_protected_area_start(nor, lock_bits);
+
 	if (offset >= protected_area_start)
 		ret = MTD_IS_LOCKED;
-	else if ( (offset+len) <= protected_area_start)
+	else if ((offset + len) <= protected_area_start)
 		ret = MTD_IS_UNLOCKED;
 	else
 		ret = MTD_IS_PARTIALLY_LOCKED;
