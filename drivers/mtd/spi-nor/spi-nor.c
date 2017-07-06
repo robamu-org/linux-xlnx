@@ -638,7 +638,7 @@ static uint8_t min_protected_area_including_offset(struct spi_nor *nor,
 	if (nor->jedec_id == CFI_MFR_ST)	/* Micron */
 		lockbits_limit = 15;
 
-	for (lock_bits = 1; lock_bits < lockbits_limit; lock_bits++) {
+	for (lock_bits = 0; lock_bits < lockbits_limit; lock_bits++) {
 		if (offset >= get_protected_area_start(nor, lock_bits))
 			break;
 	}
@@ -934,7 +934,7 @@ static int spi_nor_unlock(struct mtd_info *mtd, loff_t ofs, uint64_t len)
 
 	status = read_sr(nor);
 
-	lock_bits = min_protected_area_including_offset(nor, offset + len) - 1;
+	lock_bits = min_protected_area_including_offset(nor, offset + len);
 
 	/* Only modify protection if it will not lock other areas */
 	if (lock_bits < bp_bits_from_sr(nor, status))
