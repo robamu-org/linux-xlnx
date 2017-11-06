@@ -132,6 +132,14 @@ config PWM_BRCMSTB
 	  To compile this driver as a module, choose M Here: the module
 	  will be called pwm-brcmstb.c.
 
+config PWM_CADENCE_TTC
+	tristate "CADENCE TTC PWM support"
+	help
+	  Generic PWM framework driver for Cadence TTC.
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called pwm-cadence.
+
 config PWM_CLPS711X
 	tristate "CLPS711X PWM support"
 	depends on ARCH_CLPS711X || COMPILE_TEST
