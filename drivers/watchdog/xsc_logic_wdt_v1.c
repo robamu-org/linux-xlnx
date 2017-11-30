@@ -48,10 +48,10 @@
 #define REG_COMPINT 0x10
 #define REG_COMPRST 0x14
 #define REG_COUNTER 0x18
-#define REG_STATUS 0x1c
+#define REG_STATUS 0x20
 
 #define XSC_LOGIC_WDT_WD_RESET_ACTIVE 0x80000000
-#define XSC_LOGIC_WDT_WATCHDOG_ACTIVE 0x4
+#define XSC_LOGIC_WDT_NOWAYOUT_ACTIVE 0x4
 #define XSC_LOGIC_WDT_ENABLE2_ACTIVE 0x2
 #define XSC_LOGIC_WDT_ENABLE1_ACTIVE 0x1
 
@@ -105,11 +105,7 @@ static inline void xsc_logic_wdt_enable_toggle(struct xsc_logic_wdt_dev * xsc_lo
 
 static inline uint32_t xsc_logic_wdt_get_hz(struct xsc_logic_wdt_dev * xsc_logic_wdt) {
 	int wdt_clock_hz;
-#ifdef CONFIG_CPU_FREQ
-	wdt_clock_hz = cpufreq_get(0) * 1000;
-#else
 	wdt_clock_hz = xsc_logic_wdt->clk_freq;
-#endif
 	return wdt_clock_hz;
 }
 
@@ -209,16 +205,36 @@ static long xsc_logic_wdt_ioctl(struct file *f, unsigned int cmd, unsigned long 
 		xsc_logic_wdt_set_reg(xsc_logic_wdt, REG_TICKLE, 0);
 		return 0;
 	case WDIOC_SETTIMEOUT:
-		if (xsc_logic_wdt->watchdog_active)
-			return -EBUSY;
+		{
+		int was_active = 0;
+		if (xsc_logic_wdt->watchdog_active) {
+			// Disable if active
+			was_active = 1;
+			if ((xsc_logic_wdt_get_reg(xsc_logic_wdt, REG_STATUS) &
+				(XSC_LOGIC_WDT_ENABLE2_ACTIVE | XSC_LOGIC_WDT_ENABLE1_ACTIVE))
+				== (XSC_LOGIC_WDT_ENABLE2_ACTIVE | XSC_LOGIC_WDT_ENABLE1_ACTIVE))
+				xsc_logic_wdt_enable_toggle(xsc_logic_wdt);
+			clear_bit(0,&xsc_logic_wdt->watchdog_active);
+		}
 		if ((rc = get_user(val,p)))
 			return -EFAULT;
 		xsc_logic_wdt->total_timeout = xsc_logic_wdt_calc_counts(xsc_logic_wdt, val);
 		val = (int) (xsc_logic_wdt->total_timeout >> xsc_logic_wdt->counter_divider);
 		// set both registers to be the same
+		printk(KERN_INFO "xsc_logic_wdt_v1: watchdog setting timeout to %d, counter_divider = %d, hz=%d\n", val, xsc_logic_wdt->counter_divider, xsc_logic_wdt_get_hz(xsc_logic_wdt));
 		xsc_logic_wdt_set_reg(xsc_logic_wdt,REG_COMPINT,val);
 		xsc_logic_wdt_set_reg(xsc_logic_wdt,REG_COMPRST,val);
+		if (was_active) {
+			// Only toggle enable if not active
+			if (test_and_set_bit(0,&xsc_logic_wdt->watchdog_active))
+				printk(KERN_ERR "xsc_logic_wdt_v1: should never get here!\n");
+			if ((xsc_logic_wdt_get_reg(xsc_logic_wdt, REG_STATUS) &
+				(XSC_LOGIC_WDT_ENABLE2_ACTIVE | XSC_LOGIC_WDT_ENABLE1_ACTIVE))
+				== 0)
+				xsc_logic_wdt_enable_toggle(xsc_logic_wdt);
+		}
 		return 0;
+		}
 	case WDIOC_GETTIMEOUT:
 		val = xsc_logic_wdt_calc_seconds(xsc_logic_wdt, xsc_logic_wdt->total_timeout);
 		return put_user(val,p);
@@ -226,8 +242,16 @@ static long xsc_logic_wdt_ioctl(struct file *f, unsigned int cmd, unsigned long 
 		{
 		uint32_t reset_timeout;
 		uint32_t pretimeout;
-		if (xsc_logic_wdt->watchdog_active)
-			return -EBUSY;
+		int was_active = 0;
+		if (xsc_logic_wdt->watchdog_active) {
+			// Disable if active
+			was_active = 1;
+			if ((xsc_logic_wdt_get_reg(xsc_logic_wdt, REG_STATUS) &
+				(XSC_LOGIC_WDT_ENABLE2_ACTIVE | XSC_LOGIC_WDT_ENABLE1_ACTIVE))
+				== (XSC_LOGIC_WDT_ENABLE2_ACTIVE | XSC_LOGIC_WDT_ENABLE1_ACTIVE))
+				xsc_logic_wdt_enable_toggle(xsc_logic_wdt);
+			clear_bit(0,&xsc_logic_wdt->watchdog_active);
+		}
 		if ((rc = get_user(val,p)))
 			return -EFAULT;
 		pretimeout = (uint32_t)
@@ -237,6 +261,15 @@ static long xsc_logic_wdt_ioctl(struct file *f, unsigned int cmd, unsigned long 
 			return -EINVAL;
 		xsc_logic_wdt_set_reg(xsc_logic_wdt,REG_COMPRST,reset_timeout);
 		xsc_logic_wdt_set_reg(xsc_logic_wdt,REG_COMPINT,reset_timeout-pretimeout);
+		if (was_active) {
+			// Only toggle enable if not active
+			if (test_and_set_bit(0,&xsc_logic_wdt->watchdog_active))
+				printk(KERN_ERR "xsc_logic_wdt_v1: should never get here!\n");
+			if ((xsc_logic_wdt_get_reg(xsc_logic_wdt, REG_STATUS) &
+				(XSC_LOGIC_WDT_ENABLE2_ACTIVE | XSC_LOGIC_WDT_ENABLE1_ACTIVE))
+				== 0)
+				xsc_logic_wdt_enable_toggle(xsc_logic_wdt);
+		}
 		}
 		return 0;
 	case WDIOC_GETPRETIMEOUT:
@@ -348,8 +381,13 @@ static ssize_t xsc_logic_wdt_nowayout_show(struct device *dev,
 						struct device_attribute *attr,
 						char * buf)
 {
+	int val;
 	struct xsc_logic_wdt_dev *xsc_logic_wdt = dev_get_drvdata(dev);
-	return sprintf(buf, "%d\n",xsc_logic_wdt_get_reg(xsc_logic_wdt,REG_NO_WAY_OUT));
+
+	if (xsc_logic_wdt_get_reg(xsc_logic_wdt, REG_STATUS) & XSC_LOGIC_WDT_NOWAYOUT_ACTIVE)
+		val = 1;
+
+	return sprintf(buf, "%d\n", val);
 }
 
 static ssize_t xsc_logic_wdt_timeout_store(struct device *dev,
