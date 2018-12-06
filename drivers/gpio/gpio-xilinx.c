@@ -30,6 +30,8 @@
 #include <linux/pm_runtime.h>
 #include <linux/clk.h>
 
+#include "gpiolib.h"
+
 /* Register Offset Definitions */
 #define XGPIO_DATA_OFFSET	0x0 /* Data register */
 #define XGPIO_TRI_OFFSET	0x4 /* I/O direction register */
@@ -582,6 +584,47 @@ static int xgpio_remove(struct platform_device *pdev)
 	return 0;
 }
 
+void devprop_gpiochip_set_names_dual(struct gpio_chip *chip)
+{
+	struct gpio_device *gdev = chip->gpiodev;
+	const char **names;
+	int ret, i;
+
+	if (!chip->parent) {
+		dev_warn(&gdev->dev, "GPIO chip parent is NULL\n");
+		return;
+	}
+
+	ret = device_property_read_string_array(chip->parent, "gpio2-line-names",
+						NULL, 0);
+	if (ret < 0)
+		return;
+
+	if (ret != gdev->ngpio) {
+		dev_warn(chip->parent,
+			 "names %d do not match number of GPIOs %d\n", ret,
+			 gdev->ngpio);
+		return;
+	}
+
+	names = kcalloc(gdev->ngpio, sizeof(*names), GFP_KERNEL);
+	if (!names)
+		return;
+
+	ret = device_property_read_string_array(chip->parent, "gpio2-line-names",
+						names, gdev->ngpio);
+	if (ret < 0) {
+		dev_warn(chip->parent, "failed to read GPIO line names\n");
+		kfree(names);
+		return;
+	}
+
+	for (i = 0; i < gdev->ngpio; i++)
+		gdev->descs[i].name = names[i];
+
+	kfree(names);
+}
+
 /**
  * xgpio_of_probe - Probe method for the GPIO device.
  * @pdev:       platform device instance
@@ -685,8 +728,8 @@ static int xgpio_of_probe(struct platform_device *pdev)
 		goto err_pm_put;
 	}
 
-	pr_info("XGpio: %s: registered, base is %d\n", np->full_name,
-							chip->mmchip.gc.base);
+	pr_info("XGpio: %s: registered, base is %d, ngpio is %d\n", np->full_name,
+							chip->mmchip.gc.base, chip->mmchip.gc.ngpio);
 
 	tree_info = of_get_property(np, "xlnx,is-dual", NULL);
 	if (tree_info && be32_to_cpup(tree_info)) {
@@ -749,6 +792,10 @@ static int xgpio_of_probe(struct platform_device *pdev)
 			       np->full_name, status);
 			goto err_pm_put;
 		}
+
+		pr_info("XGpio: setting gpio2-line-names\n");
+		devprop_gpiochip_set_names_dual(&chip_dual->mmchip.gc);
+
 		pr_info("XGpio: %s: dual channel registered, base is %d\n",
 			np->full_name, chip_dual->mmchip.gc.base);
 	}
