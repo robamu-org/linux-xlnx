@@ -40,6 +40,13 @@
 #define PCF2127_REG_DW         (0x07)
 #define PCF2127_REG_MO         (0x08)
 #define PCF2127_REG_YR         (0x09)
+/* Alarm Registers */
+#define PCF2127_REG_ALARM_SC   (0x0A)
+#define PCF2127_REG_ALARM_MN   (0x0B)
+#define PCF2127_REG_ALARM_HR   (0x0C)
+#define PCF2127_REG_ALARM_DM   (0x0D)
+#define PCF2127_REG_ALARM_DW   (0x0E)
+#define PCF2127_REG_ALARM_AE_S BIT(7)
 
 struct pcf2127 {
 	struct rtc_device *rtc;
@@ -152,6 +159,95 @@ static int pcf2127_rtc_set_time(struct device *dev, struct rtc_time *tm)
 	return 0;
 }
 
+static int pcf2127_rtc_read_alarm(struct device *dev, struct rtc_wkalrm *alrm)
+{
+	struct pcf2127 *pcf2127 = dev_get_drvdata(dev);
+	unsigned int buf[5], ctrl2;
+	int ret;
+
+	ret = regmap_read(pcf2127->regmap, PCF2127_REG_CTRL2, &ctrl2);
+	if (ret) {
+		dev_err(dev, "%s: ctrl2 read error\n", __func__);
+		return ret;
+	}
+	ret = regmap_bulk_read(pcf2127->regmap, PCF2127_REG_ALARM_SC, buf, 5);
+	if (ret) {
+		dev_err(dev, "%s: alarm read error\n", __func__);
+		return ret;
+	}
+
+	alrm->enabled = ctrl2 & PCF2127_REG_CTRL2_AIE;
+	alrm->pending = ctrl2 & PCF2127_REG_CTRL2_AF;
+
+	alrm->time.tm_sec = bcd2bin(buf[0] & 0x7F);
+	alrm->time.tm_min = bcd2bin(buf[1] & 0x7F);
+	alrm->time.tm_hour = bcd2bin(buf[2] & 0x3F);
+	alrm->time.tm_mday = bcd2bin(buf[3] & 0x3F);
+	alrm->time.tm_wday = buf[4] & 0x07;
+
+	dev_dbg(dev, "%s: alarm is %d:%d:%d, mday=%d, wday=%d\n", __func__,
+		alrm->time.tm_hour, alrm->time.tm_min, alrm->time.tm_sec,
+		alrm->time.tm_mday, alrm->time.tm_wday);
+
+	return 0;
+}
+
+static int pcf2127_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alrm)
+{
+	struct pcf2127 *pcf2127 = dev_get_drvdata(dev);
+	uint8_t buf[5];
+	int ret;
+
+	buf[0] = bin2bcd(alrm->time.tm_sec);
+	buf[1] = bin2bcd(alrm->time.tm_min);
+	buf[2] = bin2bcd(alrm->time.tm_hour);
+	buf[3] = bin2bcd(alrm->time.tm_mday);
+	buf[4] = (alrm->time.tm_wday & 0x07);
+
+	dev_dbg(dev, "%s: alarm set for: %d:%d:%d, mday=%d, wday=%d\n",
+		__func__, alrm->time.tm_hour, alrm->time.tm_min,
+		alrm->time.tm_sec, alrm->time.tm_mday, alrm->time.tm_wday);
+
+	ret = regmap_bulk_write(pcf2127->regmap, PCF2127_REG_ALARM_SC, buf, 5);
+	if (ret) {
+		dev_err(dev, "%s: failed to write alarm registers (%d)",
+			__func__, ret);
+		return ret;
+	}
+
+	return 0;
+}
+
+static int pcf2127_rtc_alarm_irq_enable(struct device *dev, u32 enable)
+{
+	struct pcf2127 *pcf2127 = dev_get_drvdata(dev);
+	unsigned int ctrl2;
+	int ret;
+
+	dev_dbg(dev, "%s: %s\n", __func__, enable ? "enable" : "disable");
+
+	ret = regmap_read(pcf2127->regmap, PCF2127_REG_CTRL2, &ctrl2);
+	if (ret) {
+		dev_err(dev, "%s: ctrl2 read error\n", __func__);
+		return ret;
+	}
+
+	if (enable)
+		ret = regmap_write(pcf2127->regmap, PCF2127_REG_CTRL2,
+				   ctrl2 | PCF2127_REG_CTRL2_AIE);
+	else
+		ret = regmap_write(pcf2127->regmap, PCF2127_REG_CTRL2,
+				   ctrl2 & ~PCF2127_REG_CTRL2_AIE);
+
+	if (ret) {
+		dev_err(dev, "%s: failed to enable alarm (%d)\n", __func__,
+			ret);
+		return ret;
+	}
+
+	return 0;
+}
+
 #ifdef CONFIG_RTC_INTF_DEV
 static int pcf2127_rtc_ioctl(struct device *dev, unsigned int cmd,
 			     unsigned long arg)
@@ -180,9 +276,12 @@ static int pcf2127_rtc_ioctl(struct device *dev, unsigned int cmd,
 #endif
 
 static const struct rtc_class_ops pcf2127_rtc_ops = {
-	.ioctl		= pcf2127_rtc_ioctl,
-	.read_time	= pcf2127_rtc_read_time,
-	.set_time	= pcf2127_rtc_set_time,
+	.ioctl		  = pcf2127_rtc_ioctl,
+	.read_time	  = pcf2127_rtc_read_time,
+	.set_time	  = pcf2127_rtc_set_time,
+	.read_alarm       = pcf2127_rtc_read_alarm,
+	.set_alarm        = pcf2127_rtc_set_alarm,
+	.alarm_irq_enable = pcf2127_rtc_alarm_irq_enable,
 };
 
 static int pcf2127_probe(struct device *dev, struct regmap *regmap,
@@ -199,6 +298,8 @@ static int pcf2127_probe(struct device *dev, struct regmap *regmap,
 	pcf2127->regmap = regmap;
 
 	dev_set_drvdata(dev, pcf2127);
+
+	device_init_wakeup(dev, 1);
 
 	pcf2127->rtc = devm_rtc_device_register(dev, name, &pcf2127_rtc_ops,
 						THIS_MODULE);
