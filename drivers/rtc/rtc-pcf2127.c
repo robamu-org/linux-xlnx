@@ -288,6 +288,7 @@ static int pcf2127_probe(struct device *dev, struct regmap *regmap,
 			 const char *name)
 {
 	struct pcf2127 *pcf2127;
+	int ret;
 
 	dev_dbg(dev, "%s\n", __func__);
 
@@ -299,6 +300,13 @@ static int pcf2127_probe(struct device *dev, struct regmap *regmap,
 
 	dev_set_drvdata(dev, pcf2127);
 
+	ret = regmap_update_bits(pcf2127->regmap, PCF2127_REG_CTRL2,
+				 PCF2127_REG_CTRL2_AIE, 0);
+	if (ret) {
+		dev_err(dev, "%s: failed to clear Interrupt enable bit (%d)",
+			__func__, ret);
+		return ret;
+	}
 	device_init_wakeup(dev, 1);
 
 	pcf2127->rtc = devm_rtc_device_register(dev, name, &pcf2127_rtc_ops,
