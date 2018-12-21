@@ -13,30 +13,33 @@
  * published by the Free Software Foundation.
  */
 
-#include <linux/i2c.h>
-#include <linux/spi/spi.h>
 #include <linux/bcd.h>
-#include <linux/rtc.h>
-#include <linux/slab.h>
+#include <linux/i2c.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/regmap.h>
+#include <linux/rtc.h>
+#include <linux/slab.h>
+#include <linux/spi/spi.h>
 
-#define PCF2127_REG_CTRL1       (0x00)  /* Control Register 1 */
-#define PCF2127_REG_CTRL2       (0x01)  /* Control Register 2 */
-
-#define PCF2127_REG_CTRL3       (0x02)  /* Control Register 3 */
-#define PCF2127_REG_CTRL3_BLF		BIT(2)
-
-#define PCF2127_REG_SC          (0x03)  /* datetime */
-#define PCF2127_REG_MN          (0x04)
-#define PCF2127_REG_HR          (0x05)
-#define PCF2127_REG_DM          (0x06)
-#define PCF2127_REG_DW          (0x07)
-#define PCF2127_REG_MO          (0x08)
-#define PCF2127_REG_YR          (0x09)
-
-#define PCF2127_OSF             BIT(7)  /* Oscillator Fail flag */
+/* Control Register 1 */
+#define PCF2127_REG_CTRL1      (0x00)
+/* Control Register 2 */
+#define PCF2127_REG_CTRL2      (0x01)
+#define PCF2127_REG_CTRL2_AIE  BIT(1)
+#define PCF2127_REG_CTRL2_AF   BIT(4)
+/* Control Register 3 */
+#define PCF2127_REG_CTRL3      (0x02)
+#define PCF2127_REG_CTRL3_BLF  BIT(2)
+/* Date and Time Registers */
+#define PCF2127_REG_SC         (0x03)
+#define PCF2127_REG_SC_OSF     BIT(7)
+#define PCF2127_REG_MN         (0x04)
+#define PCF2127_REG_HR         (0x05)
+#define PCF2127_REG_DM         (0x06)
+#define PCF2127_REG_DW         (0x07)
+#define PCF2127_REG_MO         (0x08)
+#define PCF2127_REG_YR         (0x09)
 
 struct pcf2127 {
 	struct rtc_device *rtc;
@@ -73,9 +76,9 @@ static int pcf2127_rtc_read_time(struct device *dev, struct rtc_time *tm)
 
 	if (buf[PCF2127_REG_CTRL3] & PCF2127_REG_CTRL3_BLF)
 		dev_info(dev,
-			"low voltage detected, check/replace RTC battery.\n");
+			 "low voltage detected, check/replace RTC battery.\n");
 
-	if (buf[PCF2127_REG_SC] & PCF2127_OSF) {
+	if (buf[PCF2127_REG_SC] & PCF2127_REG_SC_OSF) {
 		/*
 		 * no need clear the flag here,
 		 * it will be cleared once the new date is saved
@@ -103,7 +106,7 @@ static int pcf2127_rtc_read_time(struct device *dev, struct rtc_time *tm)
 	tm->tm_mon = bcd2bin(buf[PCF2127_REG_MO] & 0x1F) - 1; /* rtc mn 1-12 */
 	tm->tm_year = bcd2bin(buf[PCF2127_REG_YR]);
 	if (tm->tm_year < 70)
-		tm->tm_year += 100;	/* assume we are in 1970...2069 */
+		tm->tm_year += 100; /* assume we are in 1970...2069 */
 
 	dev_dbg(dev, "%s: tm is secs=%d, mins=%d, hours=%d, "
 		"mday=%d, mon=%d, year=%d, wday=%d\n",
@@ -127,7 +130,7 @@ static int pcf2127_rtc_set_time(struct device *dev, struct rtc_time *tm)
 		tm->tm_mday, tm->tm_mon, tm->tm_year, tm->tm_wday);
 
 	/* hours, minutes and seconds */
-	buf[i++] = bin2bcd(tm->tm_sec);	/* this will also clear OSF flag */
+	buf[i++] = bin2bcd(tm->tm_sec); /* this will also clear OSF flag */
 	buf[i++] = bin2bcd(tm->tm_min);
 	buf[i++] = bin2bcd(tm->tm_hour);
 	buf[i++] = bin2bcd(tm->tm_mday);
@@ -142,8 +145,7 @@ static int pcf2127_rtc_set_time(struct device *dev, struct rtc_time *tm)
 	/* write register's data */
 	err = regmap_bulk_write(pcf2127->regmap, PCF2127_REG_SC, buf, i);
 	if (err) {
-		dev_err(dev,
-			"%s: err=%d", __func__, err);
+		dev_err(dev, "%s: err=%d", __func__, err);
 		return err;
 	}
 
@@ -151,8 +153,8 @@ static int pcf2127_rtc_set_time(struct device *dev, struct rtc_time *tm)
 }
 
 #ifdef CONFIG_RTC_INTF_DEV
-static int pcf2127_rtc_ioctl(struct device *dev,
-				unsigned int cmd, unsigned long arg)
+static int pcf2127_rtc_ioctl(struct device *dev, unsigned int cmd,
+			     unsigned long arg)
 {
 	struct pcf2127 *pcf2127 = dev_get_drvdata(dev);
 	int touser;
@@ -184,7 +186,7 @@ static const struct rtc_class_ops pcf2127_rtc_ops = {
 };
 
 static int pcf2127_probe(struct device *dev, struct regmap *regmap,
-			const char *name)
+			 const char *name)
 {
 	struct pcf2127 *pcf2127;
 
@@ -228,9 +230,9 @@ static int pcf2127_i2c_write(void *context, const void *data, size_t count)
 	return 0;
 }
 
-static int pcf2127_i2c_gather_write(void *context,
-				const void *reg, size_t reg_size,
-				const void *val, size_t val_size)
+static int pcf2127_i2c_gather_write(void *context, const void *reg,
+				    size_t reg_size, const void *val,
+				    size_t val_size)
 {
 	struct device *dev = context;
 	struct i2c_client *client = to_i2c_client(dev);
@@ -255,7 +257,7 @@ static int pcf2127_i2c_gather_write(void *context,
 }
 
 static int pcf2127_i2c_read(void *context, const void *reg, size_t reg_size,
-				void *val, size_t val_size)
+			    void *val, size_t val_size)
 {
 	struct device *dev = context;
 	struct i2c_client *client = to_i2c_client(dev);
@@ -289,7 +291,7 @@ static const struct regmap_bus pcf2127_i2c_regmap = {
 static struct i2c_driver pcf2127_i2c_driver;
 
 static int pcf2127_i2c_probe(struct i2c_client *client,
-				const struct i2c_device_id *id)
+			     const struct i2c_device_id *id)
 {
 	struct regmap *regmap;
 	static const struct regmap_config config = {
@@ -301,7 +303,7 @@ static int pcf2127_i2c_probe(struct i2c_client *client,
 		return -ENODEV;
 
 	regmap = devm_regmap_init(&client->dev, &pcf2127_i2c_regmap,
-					&client->dev, &config);
+				  &client->dev, &config);
 	if (IS_ERR(regmap)) {
 		dev_err(&client->dev, "%s: regmap allocation failed: %ld\n",
 			__func__, PTR_ERR(regmap));
@@ -309,7 +311,7 @@ static int pcf2127_i2c_probe(struct i2c_client *client,
 	}
 
 	return pcf2127_probe(&client->dev, regmap,
-				pcf2127_i2c_driver.driver.name);
+			     pcf2127_i2c_driver.driver.name);
 }
 
 static const struct i2c_device_id pcf2127_i2c_id[] = {
