@@ -1206,6 +1206,17 @@ static int spi_nor_is_locked(struct mtd_info *mtd, loff_t ofs, uint64_t len)
 	if (ret)
 		return ret;
 
+	if (nor->isparallel == 1)
+		ofs = ofs >> nor->shift;
+
+	if (nor->isstacked == 1) {
+		if (ofs >= (mtd->size / 2)) {
+			ofs = ofs - (mtd->size / 2);
+			nor->spi->master->flags |= SPI_MASTER_U_PAGE;
+		} else
+			nor->spi->master->flags &= ~SPI_MASTER_U_PAGE;
+	}
+
 	ret = nor->flash_is_locked(nor, ofs, len);
 
 	spi_nor_unlock_and_unprep(nor, SPI_NOR_OPS_LOCK);
