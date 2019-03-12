@@ -721,139 +721,46 @@ erase_err:
 	return ret;
 }
 
-static inline uint16_t min_lockable_sectors(struct spi_nor *nor,
-					    uint16_t n_sectors)
+static inline u8 swap_bits(u8 n, int p1, int p2)
 {
-	uint16_t lock_granularity;
-
-	/*
-	 * Revisit - SST (not used by us) has the same JEDEC ID as micron but
-	 * protected area table is similar to that of spansion.
-	 */
-	lock_granularity = max(1, n_sectors/M25P_MAX_LOCKABLE_SECTORS);
-	if (nor->jedec_id == CFI_MFR_ST)	/* Micron */
-		lock_granularity = 1;
-
-	return lock_granularity;
+  return (
+		  ((n >> p1) & 1) == ((n >> p2) & 1) ?
+		  	n : ((n ^ (1 << p2)) ^ (1 << p1))
+		  );
 }
 
-static inline uint32_t get_protected_area_start(struct spi_nor *nor,
-						uint8_t lock_bits)
+static inline uint64_t stm_sr_to_len(struct spi_nor *nor, u8 sr)
 {
-	u16 n_sectors;
-	u32 sector_size;
-	uint64_t mtd_size;
-	struct mtd_info *mtd = &nor->mtd;
+	u8 mask = SR_BP3 | SR_BP2 | SR_BP1 | SR_BP0;
+	int shift = ffs(mask) - 1;
+	int bits;
 
-	n_sectors = nor->n_sectors;
-	sector_size = nor->sector_size;
-	mtd_size = mtd->size;
-
-	if (nor->isparallel) {
-		sector_size = (nor->sector_size >> 1);
-		mtd_size = (mtd->size >> 1);
-	}
-	if (nor->isstacked) {
-		n_sectors = (nor->n_sectors >> 1);
-		mtd_size = (mtd->size >> 1);
+	if (!(sr & mask)) {
+		return 0;
 	}
 
-	return mtd_size - (1<<(lock_bits-1)) *
-		min_lockable_sectors(nor, n_sectors) * sector_size;
+	bits = swap_bits(sr & mask, 6, 5) >> shift;
+
+	return nor->sector_size << (bits - 1);
 }
-
-static uint8_t min_protected_area_including_offset(struct spi_nor *nor,
-						   uint32_t offset)
-{
-	uint8_t lock_bits, lockbits_limit;
-
-	/*
-	 * Revisit - SST (not used by us) has the same JEDEC ID as micron but
-	 * protected area table is similar to that of spansion.
-	 * Mircon has 4 block protect bits.
-	 */
-	lockbits_limit = 7;
-	if (nor->jedec_id == CFI_MFR_ST)	/* Micron */
-		lockbits_limit = 15;
-
-	for (lock_bits = 1; lock_bits < lockbits_limit; lock_bits++) {
-		if (offset >= get_protected_area_start(nor, lock_bits))
-			break;
-	}
-	return lock_bits;
-}
-
-static int write_sr_modify_protection(struct spi_nor *nor, uint8_t status,
-				      uint8_t lock_bits)
-{
-	uint8_t status_new, bp_mask;
-	u8 val[2];
-
-	status_new = status & ~SR_BP_BIT_MASK;
-	bp_mask = (lock_bits << SR_BP_BIT_OFFSET) & SR_BP_BIT_MASK;
-
-	/* Micron */
-	if (nor->jedec_id == CFI_MFR_ST) {
-		/* To support chips with more than 896 sectors (56MB) */
-		status_new &= ~SR_BP3;
-
-		/* Protected area starts from top */
-		status_new &= ~SR_BP_TB;
-
-		if (lock_bits > 7)
-			bp_mask |= SR_BP3;
-	}
-
-	if (nor->is_lock)
-		status_new |= bp_mask;
-
-	write_enable(nor);
-
-	/* For spansion flashes */
-	if (nor->jedec_id == CFI_MFR_AMD) {
-		val[1] = read_cr(nor) << 8;
-		val[0] |= status_new;
-		if (write_sr_cr(nor, val) < 0)
-			return 1;
-	} else {
-		if (write_sr(nor, status_new) < 0)
-			return 1;
-	}
-	return 0;
-}
-
-static uint8_t bp_bits_from_sr(struct spi_nor *nor, uint8_t status)
-{
-	uint8_t ret;
-
-	ret = (((status) & SR_BP_BIT_MASK) >> SR_BP_BIT_OFFSET);
-	if (nor->jedec_id == 0x20)
-		ret |= ((status & SR_BP3) >> (SR_BP_BIT_OFFSET + 1));
-
-	return ret;
-}
-
 
 static void stm_get_locked_range(struct spi_nor *nor, u8 sr, loff_t *ofs,
 				 uint64_t *len)
 {
 	struct mtd_info *mtd = &nor->mtd;
-	u8 mask = SR_BP2 | SR_BP1 | SR_BP0;
-	int shift = ffs(mask) - 1;
-	int pow;
+	uint64_t mtd_size = mtd->size;
 
-	if (!(sr & mask)) {
-		/* No protection */
-		*ofs = 0;
-		*len = 0;
-	} else {
-		pow = ((sr & mask) ^ mask) >> shift;
-		*len = mtd->size >> pow;
-		if (nor->flags & SNOR_F_HAS_SR_TB && sr & SR_TB)
-			*ofs = 0;
-		else
-			*ofs = mtd->size - *len;
+	if (nor->isstacked) {
+		mtd_size = (mtd->size >> 1);
 	}
+
+	*len = stm_sr_to_len(nor, sr);
+
+	if ((*len == 0) || (nor->flags & SNOR_F_HAS_SR_TB && sr & SR_TB))
+		*ofs = 0;
+	else
+		*ofs = mtd_size - *len;
+
 }
 
 /*
@@ -927,18 +834,24 @@ static int stm_lock(struct spi_nor *nor, loff_t ofs, uint64_t len)
 {
 	struct mtd_info *mtd = &nor->mtd;
 	int status_old, status_new;
-	u8 mask = SR_BP2 | SR_BP1 | SR_BP0;
-	u8 shift = ffs(mask) - 1, pow, val;
-	loff_t lock_len;
+	u8 mask = SR_BP3 | SR_BP2 | SR_BP1 | SR_BP0;
+	u8 shift = ffs(mask) - 1, val;
+	loff_t lock_len = 0;
 	bool can_be_top = true, can_be_bottom = nor->flags & SNOR_F_HAS_SR_TB;
 	bool use_top;
 	int ret;
+	uint64_t mtd_size;
+	mtd_size = mtd->size;
+
+	if (nor->isstacked) {
+		mtd_size = (mtd->size >> 1);
+	}
 
 	status_old = read_sr(nor);
 	if (status_old < 0)
 		return status_old;
 
-	/* If nothing in our range is unlocked, we don't need to do anything */
+	/* If everything in our range is locked, we don't need to do anything */
 	if (stm_is_locked_sr(nor, ofs, len, status_old))
 		return 0;
 
@@ -947,7 +860,7 @@ static int stm_lock(struct spi_nor *nor, loff_t ofs, uint64_t len)
 		can_be_bottom = false;
 
 	/* If anything above us is unlocked, we can't use 'top' protection */
-	if (!stm_is_locked_sr(nor, ofs + len, mtd->size - (ofs + len),
+	if (!stm_is_locked_sr(nor, ofs + len, mtd_size - (ofs + len),
 				status_old))
 		can_be_top = false;
 
@@ -958,22 +871,25 @@ static int stm_lock(struct spi_nor *nor, loff_t ofs, uint64_t len)
 	use_top = can_be_top;
 
 	/* lock_len: length of region that should end up locked */
-	if (use_top)
-		lock_len = mtd->size - ofs;
-	else
-		lock_len = ofs + len;
+	if (status_old & SR_TB) {
+		loff_t lock_offs_old = 0;
+		uint64_t lock_len_old = 0;
+		stm_get_locked_range(nor, status_old, &lock_offs_old, &lock_len_old);
 
-	/*
-	 * Need smallest pow such that:
-	 *
-	 *   1 / (2^pow) <= (len / size)
-	 *
-	 * so (assuming power-of-2 size) we do:
-	 *
-	 *   pow = ceil(log2(size / len)) = log2(size) - floor(log2(len))
-	 */
-	pow = ilog2(mtd->size) - ilog2(lock_len);
-	val = mask - (pow << shift);
+		if (use_top)
+			lock_len = ofs + len + lock_len_old;
+		else
+			lock_len = mtd_size - ofs;
+	}
+	else
+		if (use_top)
+			lock_len = mtd_size - ofs;
+		else
+			lock_len = ofs + len;
+
+
+	val = swap_bits(ilog2(lock_len >> (ilog2(nor->sector_size) - 1))
+			<< shift, 6, 5);
 	if (val & ~mask)
 		return -EINVAL;
 	/* Don't "lock" with no region! */
@@ -1012,12 +928,19 @@ static int stm_unlock(struct spi_nor *nor, loff_t ofs, uint64_t len)
 {
 	struct mtd_info *mtd = &nor->mtd;
 	int status_old, status_new;
-	u8 mask = SR_BP2 | SR_BP1 | SR_BP0;
-	u8 shift = ffs(mask) - 1, pow, val;
+	u8 mask = SR_BP3 | SR_BP2 | SR_BP1 | SR_BP0;
+	u8 shift = ffs(mask) - 1, val;
 	loff_t lock_len;
 	bool can_be_top = true, can_be_bottom = nor->flags & SNOR_F_HAS_SR_TB;
 	bool use_top;
 	int ret;
+	uint64_t mtd_size;
+	mtd_size = mtd->size;
+
+	if (nor->isstacked) {
+		mtd_size = (mtd->size >> 1);
+	}
+
 
 	status_old = read_sr(nor);
 	if (status_old < 0)
@@ -1032,7 +955,7 @@ static int stm_unlock(struct spi_nor *nor, loff_t ofs, uint64_t len)
 		can_be_top = false;
 
 	/* If anything above us is locked, we can't use 'bottom' protection */
-	if (!stm_is_unlocked_sr(nor, ofs + len, mtd->size - (ofs + len),
+	if (!stm_is_unlocked_sr(nor, ofs + len, mtd_size - (ofs + len),
 				status_old))
 		can_be_bottom = false;
 
@@ -1043,26 +966,23 @@ static int stm_unlock(struct spi_nor *nor, loff_t ofs, uint64_t len)
 	use_top = can_be_top;
 
 	/* lock_len: length of region that should remain locked */
-	if (use_top)
-		lock_len = mtd->size - (ofs + len);
+	if (status_old & SR_TB)
+		if (use_top)
+			lock_len = ofs;
+		else
+			lock_len = mtd_size - (ofs + len);
 	else
-		lock_len = ofs;
+		if (use_top)
+			lock_len = mtd_size - (ofs + len);
+		else
+			lock_len = ofs;
 
-	/*
-	 * Need largest pow such that:
-	 *
-	 *   1 / (2^pow) >= (len / size)
-	 *
-	 * so (assuming power-of-2 size) we do:
-	 *
-	 *   pow = floor(log2(size / len)) = log2(size) - ceil(log2(len))
-	 */
-	pow = ilog2(mtd->size) - order_base_2(lock_len);
 	if (lock_len == 0) {
 		val = 0; /* fully unlocked */
 	} else {
-		val = mask - (pow << shift);
-		/* Some power-of-two sizes are not supported */
+		val = swap_bits(ilog2(lock_len >> (ilog2(nor->sector_size) - 1))
+				<< shift, 6, 5);
+
 		if (val & ~mask)
 			return -EINVAL;
 	}
@@ -1113,8 +1033,6 @@ static int spi_nor_lock(struct mtd_info *mtd, loff_t ofs, uint64_t len)
 {
 	struct spi_nor *nor = mtd_to_spi_nor(mtd);
 	int ret;
-	uint8_t status;
-	uint8_t lock_bits;
 
 	ret = spi_nor_lock_and_prep(nor, SPI_NOR_OPS_LOCK);
 	if (ret)
@@ -1132,23 +1050,6 @@ static int spi_nor_lock(struct mtd_info *mtd, loff_t ofs, uint64_t len)
 	}
 
 	ret = nor->flash_lock(nor, ofs, len);
-	/* Wait until finished previous command */
-	ret = spi_nor_wait_till_ready(nor);
-	if (ret)
-		goto err;
-
-	status = read_sr(nor);
-
-	lock_bits = min_protected_area_including_offset(nor, ofs);
-
-	/* Only modify protection if it will not unlock other areas */
-	if (lock_bits > bp_bits_from_sr(nor, status)) {
-		nor->is_lock = 1;
-		ret = write_sr_modify_protection(nor, status, lock_bits);
-	}
-	else
-		dev_err(nor->dev, "trying to unlock already locked area\n");
-err:
 	spi_nor_unlock_and_unprep(nor, SPI_NOR_OPS_UNLOCK);
 	return ret;
 }
@@ -1157,8 +1058,6 @@ static int spi_nor_unlock(struct mtd_info *mtd, loff_t ofs, uint64_t len)
 {
 	struct spi_nor *nor = mtd_to_spi_nor(mtd);
 	int ret;
-	uint8_t status;
-	uint8_t lock_bits;
 
 	ret = spi_nor_lock_and_prep(nor, SPI_NOR_OPS_UNLOCK);
 	if (ret)
@@ -1175,24 +1074,8 @@ static int spi_nor_unlock(struct mtd_info *mtd, loff_t ofs, uint64_t len)
 			nor->spi->master->flags &= ~SPI_MASTER_U_PAGE;
 	}
 
+
 	ret = nor->flash_unlock(nor, ofs, len);
-	/* Wait until finished previous command */
-	ret = spi_nor_wait_till_ready(nor);
-	if (ret)
-		goto err;
-
-	status = read_sr(nor);
-
-	lock_bits = min_protected_area_including_offset(nor, ofs+len) - 1;
-
-	/* Only modify protection if it will not lock other areas */
-	if (lock_bits < bp_bits_from_sr(nor, status)) {
-		nor->is_lock = 0;
-		ret = write_sr_modify_protection(nor, status, lock_bits);
-	}
-	else
-		dev_err(nor->dev, "trying to lock already unlocked area\n");
-err:
 	spi_nor_unlock_and_unprep(nor, SPI_NOR_OPS_LOCK);
 	return ret;
 }
@@ -1399,7 +1282,7 @@ static const struct flash_info spi_nor_ids[] = {
 	{ "n25q512a13",  INFO(0x20ba20, 0, 64 * 1024, 1024, SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_READ | USE_FSR | SPI_NOR_HAS_LOCK) },
 	{ "n25q512ax3",  INFO(0x20ba20, 0, 64 * 1024, 1024, SECT_4K | USE_FSR | SPI_NOR_QUAD_READ | SPI_NOR_HAS_LOCK) },
 	{ "n25q00",      INFO(0x20ba21, 0, 64 * 1024, 2048, SECT_4K | USE_FSR | SPI_NOR_QUAD_READ | SPI_NOR_HAS_LOCK | NO_CHIP_ERASE) },
-	{ "n25q00a",     INFO(0x20bb21, 0, 64 * 1024, 2048, SECT_4K | USE_FSR | SPI_NOR_QUAD_READ | SPI_NOR_HAS_LOCK | NO_CHIP_ERASE) },
+	{ "n25q00a",     INFO(0x20bb21, 0, 64 * 1024, 2048, SECT_4K | USE_FSR | SPI_NOR_QUAD_READ | SPI_NOR_HAS_LOCK | SPI_NOR_HAS_TB | NO_CHIP_ERASE) },
 	{ "mt25ql02g",   INFO(0x20ba22, 0, 64 * 1024, 4096, SECT_4K | USE_FSR | SPI_NOR_QUAD_READ | SPI_NOR_HAS_LOCK | NO_CHIP_ERASE) },
 	{ "mt25ul02g",   INFO(0x20bb22, 0, 64 * 1024, 4096, SECT_4K | USE_FSR | SPI_NOR_QUAD_READ | SPI_NOR_HAS_LOCK | NO_CHIP_ERASE) },
 
@@ -3250,6 +3133,9 @@ int spi_nor_scan(struct spi_nor *nor, const char *name,
 	nor->isstacked = 0;
 	nor->isparallel = 0;
 #endif
+
+	nor->n_sectors = info->n_sectors;
+	nor->sector_size = info->sector_size;
 
 	/* NOR protection support for STmicro/Micron chips and similar */
 	if (JEDEC_MFR(info) == SNOR_MFR_MICRON ||
