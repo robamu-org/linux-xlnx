@@ -507,8 +507,8 @@ static int xsc_logic_wdt_probe_or_remove(bool probe, struct platform_device *ofd
 	}
 	xsc_logic_wdt->base_address = r_mem->start;
 
-	dev_info(&ofdev->dev, "OF address: 0x%08x\n",
-			xsc_logic_wdt->base_address);
+	dev_info(&ofdev->dev, "OF address: 0x%pa\n",
+			&xsc_logic_wdt->base_address);
 	/* 3. Obtain IRQ from device tree */
 	rc = of_irq_to_resource(ofdev->dev.of_node, 0, r_irq);
         if (rc <= 0) {
