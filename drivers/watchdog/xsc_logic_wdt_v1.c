@@ -513,7 +513,6 @@ static int xsc_logic_wdt_probe_or_remove(bool probe, struct platform_device *ofd
 	rc = of_irq_to_resource(ofdev->dev.of_node, 0, r_irq);
         if (rc <= 0) {
                 dev_err(&ofdev->dev, "no IRQ found.\n");
-                rc = -EINVAL;
                 goto fail_rirq;
         }
         xsc_logic_wdt->irq = r_irq->start;
