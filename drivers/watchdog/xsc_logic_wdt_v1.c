@@ -545,6 +545,22 @@ static int xsc_logic_wdt_probe_or_remove(bool probe, struct platform_device *ofd
 	if (of_prop_val)
 		xsc_logic_wdt->counter_divider = be32_to_cpup(of_prop_val);
 
+	const int INIT_TIMEOUT_SECONDS = 60;
+	uint32_t val;
+	/* 6.5 Initialize the logic to a sane timeout value */
+	xsc_logic_wdt->total_timeout = xsc_logic_wdt_calc_counts(xsc_logic_wdt,
+			INIT_TIMEOUT_SECONDS);
+	val = (uint32_t) (xsc_logic_wdt->total_timeout >>
+			xsc_logic_wdt->counter_divider);
+	// set both registers to be the same
+	printk(KERN_INFO "xsc_logic_wdt_v1: watchdog setting timeout to %d,"
+			"counter_divider = %d, hz=%d\n", val,
+			xsc_logic_wdt->counter_divider,
+			xsc_logic_wdt_get_hz(xsc_logic_wdt));
+
+	xsc_logic_wdt_set_reg(xsc_logic_wdt, REG_COMPINT, val);
+	xsc_logic_wdt_set_reg(xsc_logic_wdt, REG_COMPRST, val);
+
 	/* 7. Initialize a character device */
 	xsc_logic_wdt->dev_id = MKDEV(MAJOR(xsc_logic_wdt_dev_id),MINOR(xsc_logic_wdt_dev_id));
 	cdev_init(&xsc_logic_wdt->cdev, &xsc_logic_wdt_fops);
