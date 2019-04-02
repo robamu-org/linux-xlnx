@@ -23,12 +23,14 @@
 #include <linux/mfd/syscon.h>
 #include <linux/module.h>
 #include <linux/delay.h>
+#include <linux/io.h>
 #include <linux/of_device.h>
 #include <linux/pm_runtime.h>
 #include <linux/phy/phy.h>
 #include <linux/mmc/mmc.h>
 #include <linux/soc/xilinx/zynqmp/tap_delays.h>
 #include <linux/soc/xilinx/zynqmp/fw.h>
+#include <linux/gpio/consumer.h>
 #include <linux/pinctrl/consumer.h>
 #include <linux/regmap.h>
 #include "sdhci-pltfm.h"
@@ -113,6 +115,18 @@ struct sdhci_arasan_data {
 	struct pinctrl_state *pins_default;
 	const struct sdhci_arasan_soc_ctl_map *soc_ctl_map;
 	unsigned int	quirks; /* Arasan deviations from spec */
+
+	/* XSC q8-reva power control and overcurrent protection */
+	u32 tristate_reg;	/* MIO_MST_TRI Register     */
+	u32 tristate_mask;	/* MIO tristate enable mask */
+	void __iomem	*regs;
+	struct gpio_desc *pwr_ctrl;
+	struct gpio_desc *pwr_en_n;
+	struct gpio_desc *overcur_1v8_n;
+	struct gpio_desc *overcur_3v3_n;
+	int		pwr_en_n_irq;
+	int		is_overcur;
+
 
 /* Controller does not have CD wired and will not function normally without */
 #define SDHCI_ARASAN_QUIRK_FORCE_CDTEST	BIT(0)
@@ -843,6 +857,193 @@ static void sdhci_arasan_unregister_sdclk(struct device *dev)
 	of_clk_del_provider(dev->of_node);
 }
 
+#define XSC_NO_OVERCUR		0
+#define XSC_1V8_OVERCUR		1
+#define XSC_3V3_OVERCUR		2
+#define XSC_PWR_CTRL_EN		1
+#define XSC_PWR_CTRL_OFF	0
+
+static bool sdhci_arasan_xsc_is_pwr_en(struct sdhci_arasan_data *sdhci_arasan)
+{
+	return (gpiod_get_value(sdhci_arasan->pwr_ctrl) == XSC_PWR_CTRL_EN);
+}
+
+static int sdhci_arasan_xsc_disable(struct device *dev)
+{
+	struct platform_device *pdev = to_platform_device(dev);
+	struct sdhci_host *host = platform_get_drvdata(pdev);
+	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
+	struct sdhci_arasan_data *sdhci_arasan = sdhci_pltfm_priv(pltfm_host);
+	u32 mio_state;
+	int ret = 0;
+
+	dev_dbg(dev, "sdhci_arasan_xsc_disable.\n");
+
+	if (!sdhci_arasan_xsc_is_pwr_en(sdhci_arasan))
+		return ret;
+
+	ret = sdhci_runtime_suspend_host(host);
+
+	if (host->tuning_mode != SDHCI_TUNING_MODE_3)
+		mmc_retune_needed(host->mmc);
+
+	clk_disable(pltfm_host->clk);
+	clk_disable(sdhci_arasan->clk_ahb);
+
+	mio_state = __raw_readl(sdhci_arasan->regs);
+	mio_state |= sdhci_arasan->tristate_mask;
+	__raw_writel(mio_state, sdhci_arasan->regs);
+
+	gpiod_set_value(sdhci_arasan->pwr_ctrl, XSC_PWR_CTRL_OFF);
+
+	mmc_detect_change(host->mmc, msecs_to_jiffies(200));
+
+	return ret;
+}
+
+
+static int sdhci_arasan_xsc_enable(struct device *dev)
+{
+	struct platform_device *pdev = to_platform_device(dev);
+	struct sdhci_host *host = platform_get_drvdata(pdev);
+	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
+	struct sdhci_arasan_data *sdhci_arasan = sdhci_pltfm_priv(pltfm_host);
+	u32 mio_state;
+	int ret = 0;
+
+	dev_dbg(dev, "sdhci_arasan_xsc_enable.\n");
+
+	if (sdhci_arasan_xsc_is_pwr_en(sdhci_arasan))
+		return ret;
+
+	gpiod_set_value(sdhci_arasan->pwr_ctrl, XSC_PWR_CTRL_EN);
+	/* clear overcur state */
+	sdhci_arasan->is_overcur = false;
+
+	mio_state = __raw_readl(sdhci_arasan->regs);
+	mio_state &= ~sdhci_arasan->tristate_mask;
+	__raw_writel(mio_state, sdhci_arasan->regs);
+
+	ret = clk_enable(sdhci_arasan->clk_ahb);
+	if (ret) {
+		dev_err(dev, "Cannot enable AHB clock.\n");
+		return ret;
+	}
+
+	ret = clk_enable(pltfm_host->clk);
+	if (ret) {
+		dev_err(dev, "Cannot enable SD clock.\n");
+		return ret;
+	}
+
+	ret = sdhci_runtime_resume_host(host);
+
+	mmc_detect_change(host->mmc, msecs_to_jiffies(200));
+
+	return ret;
+}
+
+static ssize_t sdhci_arasan_xsc_pwr_en_store(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	int enable = simple_strtol(buf, NULL, 0);
+
+	if (enable != 0 && enable != 1)
+		return -EINVAL;
+
+	if (enable == 0) {
+		sdhci_arasan_xsc_disable(dev);
+	} else {
+		sdhci_arasan_xsc_enable(dev);
+	}
+
+	return count;
+}
+
+static ssize_t sdhci_arasan_xsc_pwr_en_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	struct sdhci_host *host = dev_get_drvdata(dev);
+	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
+	struct sdhci_arasan_data *sdhci_arasan = sdhci_pltfm_priv(pltfm_host);
+	return sprintf(buf, "%s\n",
+		sdhci_arasan_xsc_is_pwr_en(sdhci_arasan)? "1" : "0");
+}
+
+static DEVICE_ATTR(pwr_en, S_IWUSR | S_IRUGO, sdhci_arasan_xsc_pwr_en_show,
+	sdhci_arasan_xsc_pwr_en_store);
+
+static ssize_t sdhci_arasan_xsc_state_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	struct sdhci_host *host = dev_get_drvdata(dev);
+	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
+	struct sdhci_arasan_data *sdhci_arasan = sdhci_pltfm_priv(pltfm_host);
+
+	if (sdhci_arasan_xsc_is_pwr_en(sdhci_arasan)) {
+		return sprintf(buf, "on\n");
+	} else if (sdhci_arasan->is_overcur == XSC_1V8_OVERCUR) {
+		return sprintf(buf, "oc_1v8\n");
+	} else if (sdhci_arasan->is_overcur == XSC_3V3_OVERCUR) {
+		return sprintf(buf, "oc_3v3\n");
+	} else {
+		return sprintf(buf, "off\n");
+	}
+}
+
+static DEVICE_ATTR(state, S_IRUGO, sdhci_arasan_xsc_state_show, NULL);
+
+static struct attribute *sdhci_arasan_xsc_attrs[] = {
+	&dev_attr_pwr_en.attr,
+	&dev_attr_state.attr,
+	NULL,
+};
+
+static struct attribute_group sdhci_arasan_xsc_attrs_group = {
+	.attrs = sdhci_arasan_xsc_attrs,
+};
+
+static int sdhci_arasan_xsc_get_cd(struct mmc_host *mmc)
+{
+	struct sdhci_host *host = mmc_priv(mmc);
+	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
+	struct sdhci_arasan_data *sdhci_arasan = sdhci_pltfm_priv(pltfm_host);
+
+	return sdhci_arasan_xsc_is_pwr_en(sdhci_arasan);
+}
+
+/* Power off then suspend the eMMC clocks on overcurrent detection */
+static irqreturn_t overcur_irq_handler(int irq, void* data)
+{
+	struct device *dev = data;
+	struct platform_device *pdev = to_platform_device(dev);
+	struct sdhci_host *host = platform_get_drvdata(pdev);
+	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
+	struct sdhci_arasan_data *sdhci_arasan = sdhci_pltfm_priv(pltfm_host);
+	u32 mio_state;
+
+	if (!sdhci_arasan_xsc_is_pwr_en(sdhci_arasan))
+		return IRQ_HANDLED;
+
+	if (gpiod_get_value(sdhci_arasan->overcur_1v8_n) == 0)
+		sdhci_arasan->is_overcur = XSC_1V8_OVERCUR;
+	else
+		sdhci_arasan->is_overcur = XSC_3V3_OVERCUR;
+
+	clk_disable(pltfm_host->clk);
+	clk_disable(sdhci_arasan->clk_ahb);
+
+	mio_state = __raw_readl(sdhci_arasan->regs);
+	mio_state |= sdhci_arasan->tristate_mask;
+	__raw_writel(mio_state, sdhci_arasan->regs);
+
+	gpiod_set_value(sdhci_arasan->pwr_ctrl, XSC_PWR_CTRL_OFF);
+
+	mmc_detect_change(host->mmc, msecs_to_jiffies(200));
+
+	return IRQ_HANDLED;
+}
+
 static int sdhci_arasan_probe(struct platform_device *pdev)
 {
 	int ret;
@@ -983,6 +1184,84 @@ static int sdhci_arasan_probe(struct platform_device *pdev)
 		}
 	}
 
+	/* XSC power control and overcurrent detection */
+	sdhci_arasan->is_overcur = XSC_NO_OVERCUR;
+	ret = device_add_group(&pdev->dev, &sdhci_arasan_xsc_attrs_group);
+	if (ret)
+		dev_warn(&pdev->dev, "Unable to create sysfs attributes\n");
+
+	/* power control MIO */
+	sdhci_arasan->pwr_ctrl = devm_gpiod_get(&pdev->dev,
+		"xsc,pwr-ctrl", GPIOD_OUT_HIGH);
+	if (IS_ERR(sdhci_arasan->pwr_ctrl)) {
+		ret = PTR_ERR(sdhci_arasan->pwr_ctrl);
+		goto sysfs_remove;
+	}
+	dev_dbg(&pdev->dev, "xsc,pwr-ctrl ok\n");
+
+	/* power enable not MIO */
+	sdhci_arasan->pwr_en_n = devm_gpiod_get(&pdev->dev,
+		"xsc,pwr-en-n", GPIOD_IN);
+	if (IS_ERR(sdhci_arasan->pwr_en_n)) {
+		ret = PTR_ERR(sdhci_arasan->pwr_en_n);
+		goto sysfs_remove;
+	}
+	dev_dbg(&pdev->dev, "xsc,pwr-en-n ok\n");
+
+	/* overcur 1v8 not MIO */
+	sdhci_arasan->overcur_1v8_n = devm_gpiod_get(&pdev->dev,
+		"xsc,overcur-1v8-n", GPIOD_IN);
+	if (IS_ERR(sdhci_arasan->overcur_1v8_n)) {
+		ret = PTR_ERR(sdhci_arasan->overcur_1v8_n);
+		goto sysfs_remove;
+	}
+	dev_dbg(&pdev->dev, "xsc,overcur-1v8-n ok\n");
+
+	/* overcur 3v3 not MIO */
+	sdhci_arasan->overcur_3v3_n = devm_gpiod_get(&pdev->dev,
+		"xsc,overcur-3v3-n", GPIOD_IN);
+	if (IS_ERR(sdhci_arasan->overcur_3v3_n)) {
+		ret = PTR_ERR(sdhci_arasan->overcur_3v3_n);
+		goto sysfs_remove;
+	}
+	dev_dbg(&pdev->dev, "xsc,overcur-3v3-n ok\n");
+
+	sdhci_arasan->pwr_en_n_irq = gpiod_to_irq(sdhci_arasan->pwr_en_n);
+	if (sdhci_arasan->pwr_en_n_irq < 0) {
+		dev_err(&pdev->dev, "No corresponding irq for gpio\n");
+		goto sysfs_remove;
+	}
+	ret = devm_request_irq(&pdev->dev, sdhci_arasan->pwr_en_n_irq,
+			overcur_irq_handler, IRQF_TRIGGER_RISING,
+			dev_name(&pdev->dev), &pdev->dev);
+	if (ret < 0) {
+		dev_err(&pdev->dev, "request_irq %d failed \n",
+			sdhci_arasan->pwr_en_n_irq);
+		goto sysfs_remove;
+	}
+	/* detect card with pwr-ctrl */
+	host->mmc_host_ops.get_cd = sdhci_arasan_xsc_get_cd;
+
+	/* enable read/write to MIO Master Tristate register */
+	ret = of_property_read_u32(pdev->dev.of_node,
+				   "xsc,tristate-reg",
+				   &sdhci_arasan->tristate_reg);
+	if (ret < 0) {
+		dev_err(&pdev->dev,
+		"\"xsc,tristate-reg \" property is missing.\n");
+		goto sysfs_remove;
+	}
+	ret = of_property_read_u32(pdev->dev.of_node,
+				   "xsc,tristate-mask",
+				   &sdhci_arasan->tristate_mask);
+	if (ret < 0) {
+		dev_err(&pdev->dev,
+		"\"xsc,tristate-mask \" property is missing.\n");
+		goto sysfs_remove;
+	}
+	sdhci_arasan->regs = devm_ioremap(&pdev->dev,
+		sdhci_arasan->tristate_reg, 0x4);
+
 	sdhci_arasan->pinctrl = devm_pinctrl_get(&pdev->dev);
 	if (!IS_ERR(sdhci_arasan->pinctrl)) {
 		sdhci_arasan->pins_default = pinctrl_lookup_state(
@@ -992,7 +1271,6 @@ static int sdhci_arasan_probe(struct platform_device *pdev)
 			dev_err(&pdev->dev, "Missing default pinctrl config\n");
 			return IS_ERR(sdhci_arasan->pins_default);
 		}
-
 		pinctrl_select_state(sdhci_arasan->pinctrl,
 				     sdhci_arasan->pins_default);
 	}
@@ -1005,13 +1283,13 @@ static int sdhci_arasan_probe(struct platform_device *pdev)
 		if (IS_ERR(sdhci_arasan->phy)) {
 			ret = PTR_ERR(sdhci_arasan->phy);
 			dev_err(&pdev->dev, "No phy for arasan,sdhci-5.1.\n");
-			goto unreg_clk;
+			goto sysfs_remove;
 		}
 
 		ret = phy_init(sdhci_arasan->phy);
 		if (ret < 0) {
 			dev_err(&pdev->dev, "phy_init err.\n");
-			goto unreg_clk;
+			goto sysfs_remove;
 		}
 
 		host->mmc_host_ops.hs400_enhanced_strobe =
@@ -1036,6 +1314,8 @@ static int sdhci_arasan_probe(struct platform_device *pdev)
 err_add_host:
 	if (!IS_ERR(sdhci_arasan->phy))
 		phy_exit(sdhci_arasan->phy);
+sysfs_remove:
+	device_remove_group(&pdev->dev, &sdhci_arasan_xsc_attrs_group);
 unreg_clk:
 	sdhci_arasan_unregister_sdclk(&pdev->dev);
 clk_disable_all:
@@ -1060,6 +1340,8 @@ static int sdhci_arasan_remove(struct platform_device *pdev)
 			phy_power_off(sdhci_arasan->phy);
 		phy_exit(sdhci_arasan->phy);
 	}
+
+	device_remove_group(&pdev->dev, &sdhci_arasan_xsc_attrs_group);
 
 	sdhci_arasan_unregister_sdclk(&pdev->dev);
 
