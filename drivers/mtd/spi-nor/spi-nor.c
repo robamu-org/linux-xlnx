@@ -1050,6 +1050,9 @@ static int spi_nor_lock(struct mtd_info *mtd, loff_t ofs, uint64_t len)
 	}
 
 	ret = nor->flash_lock(nor, ofs, len);
+
+	mtd->flags &= ~MTD_WRITEABLE;
+	dev_dbg(nor->dev, "CLEAR FLAG: MTD_WRITEABLE\n");
 	spi_nor_unlock_and_unprep(nor, SPI_NOR_OPS_UNLOCK);
 	return ret;
 }
@@ -1076,6 +1079,8 @@ static int spi_nor_unlock(struct mtd_info *mtd, loff_t ofs, uint64_t len)
 
 
 	ret = nor->flash_unlock(nor, ofs, len);
+	mtd->flags |= MTD_WRITEABLE;
+	dev_dbg(nor->dev, "SET FLAG: MTD_WRITEABLE\n");
 	spi_nor_unlock_and_unprep(nor, SPI_NOR_OPS_LOCK);
 	return ret;
 }
