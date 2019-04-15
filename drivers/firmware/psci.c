@@ -232,15 +232,19 @@ static int get_set_conduit_method(struct device_node *np)
 	return 0;
 }
 
+#if !defined(CONFIG_POWER_RESET_GPIO_RESTART)
 static void psci_sys_reset(enum reboot_mode reboot_mode, const char *cmd)
 {
 	invoke_psci_fn(PSCI_0_2_FN_SYSTEM_RESET, 0, 0, 0);
 }
+#endif
 
+#if !defined(CONFIG_POWER_RESET_GPIO)
 static void psci_sys_poweroff(void)
 {
 	invoke_psci_fn(PSCI_0_2_FN_SYSTEM_OFF, 0, 0, 0);
 }
+#endif
 
 static int __init psci_features(u32 psci_func_id)
 {
@@ -513,9 +517,13 @@ static void __init psci_0_2_set_functions(void)
 
 	psci_ops.migrate_info_type = psci_migrate_info_type;
 
+#if !defined(CONFIG_POWER_RESET_GPIO_RESTART)
 	arm_pm_restart = psci_sys_reset;
+#endif
 
+#if !defined(CONFIG_POWER_RESET_GPIO)
 	pm_power_off = psci_sys_poweroff;
+#endif
 }
 
 /*

@@ -9,8 +9,10 @@
 #include <linux/device.h>
 #include <linux/kernel.h>
 #include <linux/slab.h>
+#include <linux/delay.h>
 #include <linux/sysfs.h>
 #include <linux/spi/spi.h>
+#include <linux/gpio/consumer.h>
 #include <linux/regulator/consumer.h>
 #include <linux/err.h>
 #include <linux/module.h>
@@ -30,11 +32,27 @@
 #define ADS8688_PROG_WR_BIT		BIT(8)
 #define ADS8688_PROG_DONT_CARE_BITS	8
 
+/*
+0000= Inputrangeis set to ±2.5 x VREF
+0001= Inputrangeis set to ±1.25x VREF
+0010= Inputrangeis set to ±0.625x VREF
+0011= Inputrangeis set to ±0.3125x VREF
+1011= Inputrangeis set to ±0.15625x VREF
+0101= Inputrangeis set to 0 to 2.5 x VREF
+0110= Inputrangeis set to 0 to 1.25x VREF
+0111= Inputrangeis set to 0 to 0.625x VREF
+1111= Inputrangeis set to 0 to 0.3125x VREF
+*/
 #define ADS8688_REG_PLUSMINUS25VREF	0
 #define ADS8688_REG_PLUSMINUS125VREF	1
 #define ADS8688_REG_PLUSMINUS0625VREF	2
+#define ADS8688_REG_PLUSMINUS03125VREF	3
+#define ADS8688_REG_PLUSMINUS015625VREF	 11
+
 #define ADS8688_REG_PLUS25VREF		5
 #define ADS8688_REG_PLUS125VREF		6
+#define ADS8688_REG_PLUS0625VREF	7
+#define ADS8688_REG_PLUS03125VREF	15
 
 #define ADS8688_VREF_MV			4096
 #define ADS8688_REALBITS		16
@@ -44,15 +62,23 @@
  * @ADS8688_PLUSMINUS25VREF: Device is configured for input range ±2.5 * VREF
  * @ADS8688_PLUSMINUS125VREF: Device is configured for input range ±1.25 * VREF
  * @ADS8688_PLUSMINUS0625VREF: Device is configured for input range ±0.625 * VREF
+ * @ADS8688_PLUSMINUS03125VREF: Device is configured for input range ±0.3125 * VREF
+ * @ADS8688_PLUSMINUS015625VREF: Device is configured for input range ±0.15625 * VREF
  * @ADS8688_PLUS25VREF: Device is configured for input range 0 - 2.5 * VREF
  * @ADS8688_PLUS125VREF: Device is configured for input range 0 - 1.25 * VREF
+ * @ADS8688_PLUS0625VREF: Device is configured for input range 0 - 0.625 * VREF
+ * @ADS8688_PLUS03125VREF: Device is configured for input range 0 - 0.15625 * VREF
  */
 enum ads8688_range {
 	ADS8688_PLUSMINUS25VREF,
 	ADS8688_PLUSMINUS125VREF,
 	ADS8688_PLUSMINUS0625VREF,
+	ADS8688_PLUSMINUS03125VREF,
+	ADS8688_PLUSMINUS015625VREF,
 	ADS8688_PLUS25VREF,
 	ADS8688_PLUS125VREF,
+	ADS8688_PLUS0625VREF,
+	ADS8688_PLUS03125VREF
 };
 
 struct ads8688_chip_info {
@@ -64,6 +90,7 @@ struct ads8688_state {
 	struct mutex			lock;
 	const struct ads8688_chip_info	*chip_info;
 	struct spi_device		*spi;
+	struct gpio_desc		*gpiod_reset;
 	struct regulator		*reg;
 	unsigned int			vref_mv;
 	enum ads8688_range		range[8];
@@ -85,7 +112,7 @@ struct ads8688_ranges {
 	u8 reg;
 };
 
-static const struct ads8688_ranges ads8688_range_def[5] = {
+static const struct ads8688_ranges ads8688_range_def[9] = {
 	{
 		.range = ADS8688_PLUSMINUS25VREF,
 		.scale = 76295,
@@ -102,6 +129,16 @@ static const struct ads8688_ranges ads8688_range_def[5] = {
 		.offset = -(1 << (ADS8688_REALBITS - 1)),
 		.reg = ADS8688_REG_PLUSMINUS0625VREF,
 	}, {
+		.range = ADS8688_PLUSMINUS03125VREF,
+		.scale = 9537,
+		.offset = -(1 << (ADS8688_REALBITS - 1)),
+		.reg = ADS8688_REG_PLUSMINUS03125VREF,
+	}, {
+		.range = ADS8688_PLUSMINUS015625VREF,
+		.scale = 4768,
+		.offset = -(1 << (ADS8688_REALBITS - 1)),
+		.reg = ADS8688_REG_PLUSMINUS015625VREF,
+	}, {
 		.range = ADS8688_PLUS25VREF,
 		.scale = 38148,
 		.offset = 0,
@@ -111,6 +148,16 @@ static const struct ads8688_ranges ads8688_range_def[5] = {
 		.scale = 19074,
 		.offset = 0,
 		.reg = ADS8688_REG_PLUS125VREF,
+	}, {
+		.range = ADS8688_PLUS0625VREF,
+		.scale = 9537,
+		.offset = 0,
+		.reg = ADS8688_REG_PLUS0625VREF,
+	}, {
+		.range = ADS8688_PLUS03125VREF,
+		.scale = 4768,
+		.offset = 0,
+		.reg = ADS8688_REG_PLUS03125VREF,
 	}
 };
 
@@ -119,17 +166,19 @@ static ssize_t ads8688_show_scales(struct device *dev,
 {
 	struct ads8688_state *st = iio_priv(dev_to_iio_dev(dev));
 
-	return sprintf(buf, "0.%09u 0.%09u 0.%09u\n",
+	return sprintf(buf, "0.%09u 0.%09u 0.%09u 0.%09u 0.%09u\n",
 		       ads8688_range_def[0].scale * st->vref_mv,
 		       ads8688_range_def[1].scale * st->vref_mv,
-		       ads8688_range_def[2].scale * st->vref_mv);
+		       ads8688_range_def[2].scale * st->vref_mv,
+		       ads8688_range_def[3].scale * st->vref_mv,
+		       ads8688_range_def[4].scale * st->vref_mv);
 }
 
 static ssize_t ads8688_show_offsets(struct device *dev,
 				    struct device_attribute *attr, char *buf)
 {
 	return sprintf(buf, "%d %d\n", ads8688_range_def[0].offset,
-		       ads8688_range_def[3].offset);
+		       ads8688_range_def[5].offset);
 }
 
 static IIO_DEVICE_ATTR(in_voltage_scale_available, S_IRUGO,
@@ -314,7 +363,7 @@ static int ads8688_write_raw(struct iio_dev *indio_dev,
 		 * 0 and -(1 << (ADS8688_REALBITS - 1))
 		 */
 		if (!(ads8688_range_def[0].offset == val ||
-		    ads8688_range_def[3].offset == val)) {
+		    ads8688_range_def[5].offset == val)) {
 			mutex_unlock(&st->lock);
 			return -EINVAL;
 		}
@@ -395,6 +444,16 @@ static int ads8688_probe(struct spi_device *spi)
 
 	st = iio_priv(indio_dev);
 
+	/*
+	 * Get the GPIO for the reset
+	 */
+	st->gpiod_reset = devm_gpiod_get(&spi->dev, "rst", GPIOD_OUT_HIGH);
+	if (IS_ERR(st->gpiod_reset)) {
+		dev_err(&spi->dev, "failed to get rst-gpios: err=%ld\n",
+					PTR_ERR(st->gpiod_reset));
+		return PTR_ERR(st->gpiod_reset);
+	}
+
 	st->reg = devm_regulator_get_optional(&spi->dev, "vref");
 	if (!IS_ERR(st->reg)) {
 		ret = regulator_enable(st->reg);
@@ -427,6 +486,8 @@ static int ads8688_probe(struct spi_device *spi)
 	indio_dev->num_channels = st->chip_info->num_channels;
 	indio_dev->info = &ads8688_info;
 
+	gpiod_set_value(st->gpiod_reset, 0); /* Deassert reset */
+	msleep(20);
 	ads8688_reset(indio_dev);
 
 	mutex_init(&st->lock);

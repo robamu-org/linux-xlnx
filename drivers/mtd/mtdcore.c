@@ -966,10 +966,16 @@ EXPORT_SYMBOL_GPL(__put_mtd_device);
  */
 int mtd_erase(struct mtd_info *mtd, struct erase_info *instr)
 {
+	int is_locked;
 	if (instr->addr >= mtd->size || instr->len > mtd->size - instr->addr)
 		return -EINVAL;
-	if (!(mtd->flags & MTD_WRITEABLE))
+
+	is_locked = mtd->_is_locked(mtd, 0, mtd->size);
+	if (!(mtd->flags & MTD_WRITEABLE) || is_locked) {
+		if (is_locked)
+			pr_err("mtd_erase mtd_locked!\n");
 		return -EROFS;
+	}
 	instr->fail_addr = MTD_FAIL_ADDR_UNKNOWN;
 	if (!instr->len) {
 		instr->state = MTD_ERASE_DONE;
@@ -1058,11 +1064,18 @@ EXPORT_SYMBOL_GPL(mtd_read);
 int mtd_write(struct mtd_info *mtd, loff_t to, size_t len, size_t *retlen,
 	      const u_char *buf)
 {
+	int is_locked;
+
 	*retlen = 0;
+
 	if (to < 0 || to >= mtd->size || len > mtd->size - to)
 		return -EINVAL;
-	if (!mtd->_write || !(mtd->flags & MTD_WRITEABLE))
+	is_locked = mtd->_is_locked(mtd, to, len);
+	if (!mtd->_write || !(mtd->flags & MTD_WRITEABLE) || is_locked) {
+		if (is_locked)
+			pr_err("mtd_write mtd_locked!\n");
 		return -EROFS;
+	}
 	if (!len)
 		return 0;
 	ledtrig_mtd_activity();
@@ -1080,12 +1093,15 @@ EXPORT_SYMBOL_GPL(mtd_write);
 int mtd_panic_write(struct mtd_info *mtd, loff_t to, size_t len, size_t *retlen,
 		    const u_char *buf)
 {
+	int is_locked;
 	*retlen = 0;
+
 	if (!mtd->_panic_write)
 		return -EOPNOTSUPP;
 	if (to < 0 || to >= mtd->size || len > mtd->size - to)
 		return -EINVAL;
-	if (!(mtd->flags & MTD_WRITEABLE))
+	is_locked = mtd->_is_locked(mtd, to, len);
+	if (!(mtd->flags & MTD_WRITEABLE) || is_locked)
 		return -EROFS;
 	if (!len)
 		return 0;
@@ -1119,11 +1135,17 @@ EXPORT_SYMBOL_GPL(mtd_read_oob);
 int mtd_write_oob(struct mtd_info *mtd, loff_t to,
 				struct mtd_oob_ops *ops)
 {
+	int is_locked;
 	ops->retlen = ops->oobretlen = 0;
 	if (!mtd->_write_oob)
 		return -EOPNOTSUPP;
-	if (!(mtd->flags & MTD_WRITEABLE))
+
+	is_locked = mtd->_is_locked(mtd, to, mtd->size);
+	if (!(mtd->flags & MTD_WRITEABLE) || is_locked) {
+		if (is_locked)
+			pr_err("mtd_write_oob: nor locked!\n");
 		return -EROFS;
+	}
 	ledtrig_mtd_activity();
 	return mtd->_write_oob(mtd, to, ops);
 }
@@ -1631,12 +1653,17 @@ EXPORT_SYMBOL_GPL(mtd_block_isbad);
 
 int mtd_block_markbad(struct mtd_info *mtd, loff_t ofs)
 {
+	int is_locked;
 	if (!mtd->_block_markbad)
 		return -EOPNOTSUPP;
 	if (ofs < 0 || ofs >= mtd->size)
 		return -EINVAL;
-	if (!(mtd->flags & MTD_WRITEABLE))
+	is_locked = mtd->_is_locked(mtd, ofs, mtd->size);
+	if (!(mtd->flags & MTD_WRITEABLE) || is_locked) {
+		if (is_locked)
+			pr_err("mtd_block_markbad: nor locked!\n");
 		return -EROFS;
+	}
 	return mtd->_block_markbad(mtd, ofs);
 }
 EXPORT_SYMBOL_GPL(mtd_block_markbad);
@@ -1687,9 +1714,15 @@ static int default_mtd_writev(struct mtd_info *mtd, const struct kvec *vecs,
 int mtd_writev(struct mtd_info *mtd, const struct kvec *vecs,
 	       unsigned long count, loff_t to, size_t *retlen)
 {
+	int is_locked;
 	*retlen = 0;
-	if (!(mtd->flags & MTD_WRITEABLE))
+
+	is_locked = mtd->_is_locked(mtd, to, mtd->size);
+	if (!(mtd->flags & MTD_WRITEABLE) || is_locked) {
+		if (is_locked)
+			pr_err("mtd_writev: nor locked!\n");
 		return -EROFS;
+	}
 	if (!mtd->_writev)
 		return default_mtd_writev(mtd, vecs, count, to, retlen);
 	return mtd->_writev(mtd, vecs, count, to, retlen);
