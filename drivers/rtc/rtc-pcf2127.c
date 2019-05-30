@@ -192,32 +192,6 @@ static int pcf2127_rtc_read_alarm(struct device *dev, struct rtc_wkalrm *alrm)
 	return 0;
 }
 
-static int pcf2127_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alrm)
-{
-	struct pcf2127 *pcf2127 = dev_get_drvdata(dev);
-	uint8_t buf[5];
-	int ret;
-
-	buf[0] = bin2bcd(alrm->time.tm_sec);
-	buf[1] = bin2bcd(alrm->time.tm_min);
-	buf[2] = bin2bcd(alrm->time.tm_hour);
-	buf[3] = bin2bcd(alrm->time.tm_mday);
-	buf[4] = (alrm->time.tm_wday & 0x07);
-
-	dev_dbg(dev, "%s: alarm set for: %d:%d:%d, mday=%d, wday=%d\n",
-		__func__, alrm->time.tm_hour, alrm->time.tm_min,
-		alrm->time.tm_sec, alrm->time.tm_mday, alrm->time.tm_wday);
-
-	ret = regmap_bulk_write(pcf2127->regmap, PCF2127_REG_ALARM_SC, buf, 5);
-	if (ret) {
-		dev_err(dev, "%s: failed to write alarm registers (%d)",
-			__func__, ret);
-		return ret;
-	}
-
-	return 0;
-}
-
 static int pcf2127_rtc_alarm_irq_enable(struct device *dev, u32 enable)
 {
 	struct pcf2127 *pcf2127 = dev_get_drvdata(dev);
@@ -244,6 +218,43 @@ static int pcf2127_rtc_alarm_irq_enable(struct device *dev, u32 enable)
 			ret);
 		return ret;
 	}
+
+	return 0;
+}
+
+static int pcf2127_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alrm)
+{
+	struct pcf2127 *pcf2127 = dev_get_drvdata(dev);
+	unsigned int ctrl2;
+	uint8_t buf[5];
+	int ret;
+
+	ret = regmap_update_bits(pcf2127->regmap, PCF2127_REG_CTRL2,
+				 PCF2127_REG_CTRL2_AF, ~PCF2127_REG_CTRL2_AF);
+	if (ret) {
+		dev_err(dev, "%s: failed to clear alarm interrupt flag (%d)",
+			__func__, ret);
+		return ret;
+	}
+
+	buf[0] = bin2bcd(alrm->time.tm_sec);
+	buf[1] = bin2bcd(alrm->time.tm_min);
+	buf[2] = bin2bcd(alrm->time.tm_hour);
+	buf[3] = bin2bcd(alrm->time.tm_mday);
+	buf[4] = (alrm->time.tm_wday & 0x07);
+
+	dev_dbg(dev, "%s: alarm set for: %d:%d:%d, mday=%d, wday=%d\n",
+		__func__, alrm->time.tm_hour, alrm->time.tm_min,
+		alrm->time.tm_sec, alrm->time.tm_mday, alrm->time.tm_wday);
+
+	ret = regmap_bulk_write(pcf2127->regmap, PCF2127_REG_ALARM_SC, buf, 5);
+	if (ret) {
+		dev_err(dev, "%s: failed to write alarm registers (%d)",
+			__func__, ret);
+		return ret;
+	}
+
+	pcf2127_rtc_alarm_irq_enable(dev, alrm->enabled);
 
 	return 0;
 }
@@ -301,9 +312,9 @@ static int pcf2127_probe(struct device *dev, struct regmap *regmap,
 	dev_set_drvdata(dev, pcf2127);
 
 	ret = regmap_update_bits(pcf2127->regmap, PCF2127_REG_CTRL2,
-				 PCF2127_REG_CTRL2_AIE, 0);
+				 0xF9, 0x00);
 	if (ret) {
-		dev_err(dev, "%s: failed to clear Interrupt enable bit (%d)",
+		dev_err(dev, "%s: failed to clear interrupt flags (%d)",
 			__func__, ret);
 		return ret;
 	}
