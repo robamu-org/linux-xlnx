@@ -745,6 +745,9 @@ static inline uint64_t stm_sr_to_len(struct spi_nor *nor, u8 sr)
 
 	bits = swap_bits(sr & mask, 6, 5) >> shift;
 
+	// Top out to the number of sectors.. n_sectors = 2048 => bits = 11
+	bits = min(bits, ilog2(nor->n_sectors));
+
 	return nor->sector_size << (bits - 1);
 }
 
