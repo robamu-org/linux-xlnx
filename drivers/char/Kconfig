@@ -378,6 +378,14 @@ config XILINX_HWICAP
 
 	  If unsure, say N.
 
+config XSC_SEM
+	tristate "Xiphos interface for Xilinx TMR SEM"
+	help
+	  This enables the TMR SEM IP interface to configure, monitor
+	  and test the TMR SEM IP.
+
+	  If unsure, say Y.
+
 config R3964
 	tristate "Siemens R3964 line discipline"
 	depends on TTY
