@@ -77,6 +77,9 @@ static int io_dev_open(struct inode *ino, struct file *f)
 	if (rc != 1)
 		return -EBUSY;
 
+	// Activate interrupts
+	iowrite32(XSC_SEM_CTRL_INTR, dev->base_addr + XSC_SEM_CTRL);
+
 	return 0;
 }
 
@@ -90,6 +93,9 @@ static int io_dev_release(struct inode *ino, struct file *f)
 
 	/* unlock the cdev */
 	mutex_unlock(&dev->io_lock);
+
+	// Deactivate interrupts
+	iowrite32(0, dev->base_addr + XSC_SEM_CTRL);
 
 	return 0;
 }
@@ -299,6 +305,12 @@ static int xsc_sem_probe_or_remove(bool probe, struct platform_device *pdev)
 		goto fail_ioremap;
 	}
 
+	mutex_init(&xsc_sem_dev->io_lock);
+	init_waitqueue_head(&xsc_sem_dev->poll_wait);
+
+	tasklet_init(&xsc_sem_dev->event_tasklet, event_dispatch,
+		     (unsigned long) xsc_sem_dev);
+
 	/* Obtain IRQ from device tree */
 	rc = of_irq_to_resource(dev->of_node, 0, r_irq);
 	if (rc <= 0) {
@@ -315,12 +327,6 @@ static int xsc_sem_probe_or_remove(bool probe, struct platform_device *pdev)
 		dev_err(dev, "request_irq %d failed\n", xsc_sem_dev->irq);
 		goto fail_irq;
 	}
-
-	mutex_init(&xsc_sem_dev->io_lock);
-	init_waitqueue_head(&xsc_sem_dev->poll_wait);
-
-	tasklet_init(&xsc_sem_dev->event_tasklet, event_dispatch,
-		     (unsigned long) xsc_sem_dev);
 
 	/* initialize device for sysfs */
 	rc = alloc_chrdev_region(&io_cdev_id, 0, 1,
@@ -352,9 +358,6 @@ static int xsc_sem_probe_or_remove(bool probe, struct platform_device *pdev)
 		rc = PTR_ERR(xsc_sem_dev->io_dev);
 		goto fail_device;
 	}
-
-	/* Everything is ready, activate the interrupt */
-	iowrite32(XSC_SEM_CTRL_INTR, xsc_sem_dev->base_addr + XSC_SEM_CTRL);
 
 	pr_info("Sucessfully loaded.\n");
 
