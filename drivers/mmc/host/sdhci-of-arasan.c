@@ -1185,82 +1185,87 @@ static int sdhci_arasan_probe(struct platform_device *pdev)
 	}
 
 	/* XSC power control and overcurrent detection */
-	sdhci_arasan->is_overcur = XSC_NO_OVERCUR;
-	ret = device_add_group(&pdev->dev, &sdhci_arasan_xsc_attrs_group);
-	if (ret)
-		dev_warn(&pdev->dev, "Unable to create sysfs attributes\n");
+	sdhci_arasan->pwr_ctrl = ERR_PTR(-EOPNOTSUPP);
+	if (of_device_is_compatible(pdev->dev.of_node, "xlnx,zynqmp-8.9a")) {
 
-	/* power control MIO */
-	sdhci_arasan->pwr_ctrl = devm_gpiod_get(&pdev->dev,
-		"xsc,pwr-ctrl", GPIOD_OUT_HIGH);
-	if (IS_ERR(sdhci_arasan->pwr_ctrl)) {
-		ret = PTR_ERR(sdhci_arasan->pwr_ctrl);
-		goto sysfs_remove;
-	}
-	dev_dbg(&pdev->dev, "xsc,pwr-ctrl ok\n");
+		sdhci_arasan->is_overcur = XSC_NO_OVERCUR;
+		ret = device_add_group(&pdev->dev, &sdhci_arasan_xsc_attrs_group);
+		if (ret)
+			dev_warn(&pdev->dev, "Unable to create sysfs attributes\n");
 
-	/* power enable not MIO */
-	sdhci_arasan->pwr_en_n = devm_gpiod_get(&pdev->dev,
-		"xsc,pwr-en-n", GPIOD_IN);
-	if (IS_ERR(sdhci_arasan->pwr_en_n)) {
-		ret = PTR_ERR(sdhci_arasan->pwr_en_n);
-		goto sysfs_remove;
-	}
-	dev_dbg(&pdev->dev, "xsc,pwr-en-n ok\n");
+		/* power control MIO */
+		sdhci_arasan->pwr_ctrl = devm_gpiod_get(&pdev->dev,
+			"xsc,pwr-ctrl", GPIOD_OUT_HIGH);
+		if (IS_ERR(sdhci_arasan->pwr_ctrl)) {
+			ret = PTR_ERR(sdhci_arasan->pwr_ctrl);
+			device_remove_group(&pdev->dev, &sdhci_arasan_xsc_attrs_group);
+			goto sysfs_remove;
+		}
+		dev_dbg(&pdev->dev, "xsc,pwr-ctrl ok\n");
 
-	/* overcur 1v8 not MIO */
-	sdhci_arasan->overcur_1v8_n = devm_gpiod_get(&pdev->dev,
-		"xsc,overcur-1v8-n", GPIOD_IN);
-	if (IS_ERR(sdhci_arasan->overcur_1v8_n)) {
-		ret = PTR_ERR(sdhci_arasan->overcur_1v8_n);
-		goto sysfs_remove;
-	}
-	dev_dbg(&pdev->dev, "xsc,overcur-1v8-n ok\n");
+		/* power enable not MIO */
+		sdhci_arasan->pwr_en_n = devm_gpiod_get(&pdev->dev,
+			"xsc,pwr-en-n", GPIOD_IN);
+		if (IS_ERR(sdhci_arasan->pwr_en_n)) {
+			ret = PTR_ERR(sdhci_arasan->pwr_en_n);
+			goto sysfs_remove;
+		}
+		dev_dbg(&pdev->dev, "xsc,pwr-en-n ok\n");
 
-	/* overcur 3v3 not MIO */
-	sdhci_arasan->overcur_3v3_n = devm_gpiod_get(&pdev->dev,
-		"xsc,overcur-3v3-n", GPIOD_IN);
-	if (IS_ERR(sdhci_arasan->overcur_3v3_n)) {
-		ret = PTR_ERR(sdhci_arasan->overcur_3v3_n);
-		goto sysfs_remove;
-	}
-	dev_dbg(&pdev->dev, "xsc,overcur-3v3-n ok\n");
+		/* overcur 1v8 not MIO */
+		sdhci_arasan->overcur_1v8_n = devm_gpiod_get(&pdev->dev,
+			"xsc,overcur-1v8-n", GPIOD_IN);
+		if (IS_ERR(sdhci_arasan->overcur_1v8_n)) {
+			ret = PTR_ERR(sdhci_arasan->overcur_1v8_n);
+			goto sysfs_remove;
+		}
+		dev_dbg(&pdev->dev, "xsc,overcur-1v8-n ok\n");
 
-	sdhci_arasan->pwr_en_n_irq = gpiod_to_irq(sdhci_arasan->pwr_en_n);
-	if (sdhci_arasan->pwr_en_n_irq < 0) {
-		dev_err(&pdev->dev, "No corresponding irq for gpio\n");
-		goto sysfs_remove;
-	}
-	ret = devm_request_irq(&pdev->dev, sdhci_arasan->pwr_en_n_irq,
-			overcur_irq_handler, IRQF_TRIGGER_RISING,
-			dev_name(&pdev->dev), &pdev->dev);
-	if (ret < 0) {
-		dev_err(&pdev->dev, "request_irq %d failed \n",
-			sdhci_arasan->pwr_en_n_irq);
-		goto sysfs_remove;
-	}
-	/* detect card with pwr-ctrl */
-	host->mmc_host_ops.get_cd = sdhci_arasan_xsc_get_cd;
+		/* overcur 3v3 not MIO */
+		sdhci_arasan->overcur_3v3_n = devm_gpiod_get(&pdev->dev,
+			"xsc,overcur-3v3-n", GPIOD_IN);
+		if (IS_ERR(sdhci_arasan->overcur_3v3_n)) {
+			ret = PTR_ERR(sdhci_arasan->overcur_3v3_n);
+			goto sysfs_remove;
+		}
+		dev_dbg(&pdev->dev, "xsc,overcur-3v3-n ok\n");
 
-	/* enable read/write to MIO Master Tristate register */
-	ret = of_property_read_u32(pdev->dev.of_node,
-				   "xsc,tristate-reg",
-				   &sdhci_arasan->tristate_reg);
-	if (ret < 0) {
-		dev_err(&pdev->dev,
-		"\"xsc,tristate-reg \" property is missing.\n");
-		goto sysfs_remove;
+		sdhci_arasan->pwr_en_n_irq = gpiod_to_irq(sdhci_arasan->pwr_en_n);
+		if (sdhci_arasan->pwr_en_n_irq < 0) {
+			dev_err(&pdev->dev, "No corresponding irq for gpio\n");
+			goto sysfs_remove;
+		}
+		ret = devm_request_irq(&pdev->dev, sdhci_arasan->pwr_en_n_irq,
+				overcur_irq_handler, IRQF_TRIGGER_RISING,
+				dev_name(&pdev->dev), &pdev->dev);
+		if (ret < 0) {
+			dev_err(&pdev->dev, "request_irq %d failed \n",
+				sdhci_arasan->pwr_en_n_irq);
+			goto sysfs_remove;
+		}
+		/* detect card with pwr-ctrl */
+		host->mmc_host_ops.get_cd = sdhci_arasan_xsc_get_cd;
+
+		/* enable read/write to MIO Master Tristate register */
+		ret = of_property_read_u32(pdev->dev.of_node,
+					   "xsc,tristate-reg",
+					   &sdhci_arasan->tristate_reg);
+		if (ret < 0) {
+			dev_err(&pdev->dev,
+			"\"xsc,tristate-reg \" property is missing.\n");
+			goto sysfs_remove;
+		}
+		ret = of_property_read_u32(pdev->dev.of_node,
+					   "xsc,tristate-mask",
+					   &sdhci_arasan->tristate_mask);
+		if (ret < 0) {
+			dev_err(&pdev->dev,
+			"\"xsc,tristate-mask \" property is missing.\n");
+			goto sysfs_remove;
+		}
+		sdhci_arasan->regs = devm_ioremap(&pdev->dev,
+			sdhci_arasan->tristate_reg, 0x4);
 	}
-	ret = of_property_read_u32(pdev->dev.of_node,
-				   "xsc,tristate-mask",
-				   &sdhci_arasan->tristate_mask);
-	if (ret < 0) {
-		dev_err(&pdev->dev,
-		"\"xsc,tristate-mask \" property is missing.\n");
-		goto sysfs_remove;
-	}
-	sdhci_arasan->regs = devm_ioremap(&pdev->dev,
-		sdhci_arasan->tristate_reg, 0x4);
 
 	sdhci_arasan->pinctrl = devm_pinctrl_get(&pdev->dev);
 	if (!IS_ERR(sdhci_arasan->pinctrl)) {
@@ -1315,7 +1320,8 @@ err_add_host:
 	if (!IS_ERR(sdhci_arasan->phy))
 		phy_exit(sdhci_arasan->phy);
 sysfs_remove:
-	device_remove_group(&pdev->dev, &sdhci_arasan_xsc_attrs_group);
+	if (!IS_ERR(sdhci_arasan->pwr_ctrl))
+		device_remove_group(&pdev->dev, &sdhci_arasan_xsc_attrs_group);
 unreg_clk:
 	sdhci_arasan_unregister_sdclk(&pdev->dev);
 clk_disable_all:
@@ -1341,7 +1347,9 @@ static int sdhci_arasan_remove(struct platform_device *pdev)
 		phy_exit(sdhci_arasan->phy);
 	}
 
-	device_remove_group(&pdev->dev, &sdhci_arasan_xsc_attrs_group);
+	if (!IS_ERR(sdhci_arasan->pwr_ctrl)) {
+		device_remove_group(&pdev->dev, &sdhci_arasan_xsc_attrs_group);
+	}
 
 	sdhci_arasan_unregister_sdclk(&pdev->dev);
 
