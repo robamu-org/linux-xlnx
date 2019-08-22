@@ -55,6 +55,7 @@ struct adv7393_state {
 	u8 reg82;
 	u32 output;
 	v4l2_std_id std;
+	struct media_pad pad;
 };
 
 static inline struct adv7393_state *to_state(struct v4l2_subdev *sd)
@@ -408,6 +409,16 @@ static int adv7393_probe(struct i2c_client *client,
 	state->std = V4L2_STD_NTSC;
 
 	v4l2_i2c_subdev_init(&state->sd, client, &adv7393_ops);
+
+#if defined(CONFIG_MEDIA_CONTROLLER)
+	state->pad.flags = MEDIA_PAD_FL_SINK;
+
+	state->sd.entity.function = MEDIA_ENT_F_ATV_DECODER;
+
+	err = media_entity_pads_init(&state->sd.entity, 1, &state->pad);
+	if (err < 0)
+		return err;
+#endif
 
 	v4l2_ctrl_handler_init(&state->hdl, 3);
 	v4l2_ctrl_new_std(&state->hdl, &adv7393_ctrl_ops,
