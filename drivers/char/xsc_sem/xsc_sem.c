@@ -40,6 +40,8 @@ struct xsc_sem {
 	struct cdev		io_cdev;
 	struct mutex		io_lock;
 
+	bool			has_written;
+
 	struct tasklet_struct	event_tasklet;
 	spinlock_t              spinlock;
 	wait_queue_head_t       poll_wait;      /* Poll event waiter */
@@ -141,6 +143,8 @@ static ssize_t io_dev_write(struct file *f, const char __user *src,
 		left--;
 	}
 
+	dev->has_written = count > 0;
+
 	return count - left;
 }
 
@@ -158,7 +162,8 @@ static unsigned int io_dev_poll(struct file *file, poll_table *wait)
 	if (!rx_empty(dev) > 0) {
 		mask |= POLLIN;
 	}
-	if (!tx_full(dev) != 0) {
+	if (!tx_full(dev) && dev->has_written) {
+		dev->has_written = false;
 		mask |= POLLOUT;
 	}
 
