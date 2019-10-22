@@ -76,6 +76,7 @@ struct ad9144_platform_data {
 	u8 interpolation;
 	unsigned int fcenter_shift;
 	bool spi4wire;
+	u8 jesd_link_mode;
 };
 
 struct ad9144_state {
@@ -91,6 +92,25 @@ struct ad9144_state {
 
 	unsigned int pll_frequency;
 	bool pll_enable;
+};
+
+static const struct {
+	u8 m, l, s, f, hd, n, np;
+} ad9144_jesd_modes[] = {
+	/* 00 */ {4, 8, 1, 1, 1, 16, 16},
+	/* 01 */ {4, 8, 2, 2, 0, 16, 16},
+	/* 02 */ {4, 4, 1, 2, 0, 16, 16},
+	/* 03 */ {4, 2, 1, 4, 0, 16, 16},
+	/* 04 */ {2, 4, 1, 1, 1, 16, 16},
+	/* 05 */ {2, 4, 2, 2, 0, 16, 16},
+	/* 06 */ {2, 2, 1, 2, 0, 16, 16},
+	/* 07 */ {2, 1, 1, 4, 0, 16, 16},
+	/* 08 */ {1, 4, 2, 1, 1, 16, 16},
+	/* 09 */ {1, 2, 1, 1, 1, 16, 16},
+	/* 10 */ {1, 1, 1, 2, 0, 16, 16},
+	/* 11 */ {2, 8, 2, 1, 1, 16, 16},
+	/* 12 */ {2, 4, 1, 1, 1, 16, 16},
+	/* 13 */ {2, 2, 1, 2, 0, 16, 16}
 };
 
 static const char * const clk_names[] = {
@@ -1016,6 +1036,10 @@ static struct ad9144_platform_data *ad9144_parse_dt(struct device *dev)
 	of_property_read_u32(np, "adi,frequency-center-shift", &tmp);
 	pdata->fcenter_shift = tmp;
 
+	tmp = 4;
+	of_property_read_u32(np, "adi,jesd-link-mode", &tmp);
+	pdata->jesd_link_mode = (tmp > 13 ? 4 : tmp);
+
 	/*
 	 * DO NOT copy this. It is as wrong as it gets, we have to do it to
 	 * preserve backwards compatibility with earlier versions of the driver
@@ -1189,9 +1213,9 @@ static int ad9144_probe(struct spi_device *spi)
 		goto out;
 	}
 
-	st->num_lanes = 4;
-	st->num_converters = 2;
-	st->octets_per_frame = 1;
+	st->num_lanes = ad9144_jesd_modes[pdata->jesd_link_mode].l;
+	st->num_converters = ad9144_jesd_modes[pdata->jesd_link_mode].m;
+	st->octets_per_frame = ad9144_jesd_modes[pdata->jesd_link_mode].f;
 
 	memset(&link_config, 0x00, sizeof(link_config));
 
@@ -1201,9 +1225,9 @@ static int ad9144_probe(struct spi_device *spi)
 	link_config.num_converters = st->num_converters;
 	link_config.octets_per_frame = st->octets_per_frame;
 	link_config.frames_per_multiframe = 32;
-	link_config.samples_per_frame = 1;
+	link_config.samples_per_frame = ad9144_jesd_modes[pdata->jesd_link_mode].s;
 
-	link_config.high_density = true;
+	link_config.high_density = ad9144_jesd_modes[pdata->jesd_link_mode].hd;
 	link_config.scrambling = true;
 	link_config.subclass = 1;
 	link_config.sysref.mode = AD9144_SYSREF_ONESHOT;
