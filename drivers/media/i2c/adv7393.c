@@ -340,6 +340,64 @@ static int adv7393_s_routing(struct v4l2_subdev *sd,
 	return err;
 }
 
+static const u8 adv7393_square_pixel_reg_val[] = {
+	ADV7393_SOFT_RESET, ADV7393_SOFT_RESET_DEFAULT,
+	ADV7393_POWER_MODE_REG, ADV7393_POWER_MODE_REG_SQUARE_PIXEL,
+	ADV7393_MODE_SELECT_REG, ADV7393_INPUT_MODE_REG_SQUARE_PIXEL,
+
+	ADV7393_SD_MODE_REG1, ADV7393_SD_MODE_REG1_SQUARE_PIXEL,
+	ADV7393_SD_MODE_REG2, ADV7393_SD_MODE_REG2_SQUARE_PIXEL,
+	ADV7393_SD_MODE_REG6, ADV7393_SD_MODE_REG6_SQUARE_PIXEL,
+	ADV7393_SD_MODE_REG7, ADV7393_SD_MODE_REG7_SQUARE_PIXEL,
+
+	ADV7393_SD_HUE_ADJUST, ADV7393_SD_HUE_ADJUST_DEFAULT,
+	ADV7393_SD_CGMS_WSS0, ADV7393_SD_CGMS_WSS0_DEFAULT,
+	ADV7393_SD_BRIGHTNESS_WSS, ADV7393_SD_BRIGHTNESS_WSS_DEFAULT,
+	ADV7393_FSC_REG0, 0x55,
+	ADV7393_FSC_REG1, 0x55,
+	ADV7393_FSC_REG2, 0x55,
+	ADV7393_FSC_REG3, 0x25,
+};
+
+static int adv7393_get_fmt(struct v4l2_subdev *sd,
+			   struct v4l2_subdev_pad_config *cfg,
+			   struct v4l2_subdev_format *format)
+{
+	return 0;
+}
+
+static int adv7393_set_fmt(struct v4l2_subdev *sd,
+			   struct v4l2_subdev_pad_config *cfg,
+			   struct v4l2_subdev_format *format)
+{
+	int i, err;
+
+	// If square pixel is requested -> Configure it
+	if (format->format.width != SD_SQUARE_PIXEL_WIDTH ||
+			format->format.height != SD_SQUARE_PIXEL_HEIGHT)
+		return -EINVAL;
+
+	pr_info("Set SQUARE PIXEL FORMAT\n");
+
+	for (i = 0; i < ARRAY_SIZE(adv7393_square_pixel_reg_val); i += 2) {
+		err = adv7393_write(sd, adv7393_square_pixel_reg_val[i],
+					adv7393_square_pixel_reg_val[i+1]);
+
+		if (err) {
+			v4l2_err(sd, "Error setting square pixel format\n");
+			return err;
+		}
+	}
+
+	return 0;
+}
+
+
+static const struct v4l2_subdev_pad_ops adv7393_pad_ops = {
+	.get_fmt = adv7393_get_fmt,
+	.set_fmt = adv7393_set_fmt,
+};
+
 static const struct v4l2_subdev_video_ops adv7393_video_ops = {
 	.s_std_output	= adv7393_s_std_output,
 	.s_routing	= adv7393_s_routing,
@@ -348,6 +406,7 @@ static const struct v4l2_subdev_video_ops adv7393_video_ops = {
 static const struct v4l2_subdev_ops adv7393_ops = {
 	.core	= &adv7393_core_ops,
 	.video	= &adv7393_video_ops,
+	.pad	= &adv7393_pad_ops,
 };
 
 static int adv7393_initialize(struct v4l2_subdev *sd)
