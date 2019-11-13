@@ -105,7 +105,7 @@ static int io_dev_release(struct inode *ino, struct file *f)
 static ssize_t io_dev_read(struct file *f, char __user *dst, size_t count,
 			  loff_t *off)
 {
-	char *current_str = dst;
+	char current_str[count];
 	size_t left = count;
 	struct xsc_sem *dev = f->private_data;
 	uint32_t val;
@@ -117,10 +117,11 @@ static ssize_t io_dev_read(struct file *f, char __user *dst, size_t count,
 		if (rx_empty(dev))
 			break;
 		val = ioread32(dev->base_addr + XSC_SEM_FIFO_RX);
-		*current_str = val;
-		current_str++;
+		current_str[count - left] = val;
 		left--;
 	}
+
+	copy_to_user(dst, current_str, count - left);
 
 	return count - left;
 }
@@ -128,18 +129,20 @@ static ssize_t io_dev_read(struct file *f, char __user *dst, size_t count,
 static ssize_t io_dev_write(struct file *f, const char __user *src,
 				   size_t count, loff_t *off)
 {
-	const char *current_str = src;
+	char current_str[count];
 	size_t left = count;
 	struct xsc_sem *dev = f->private_data;
 
 	if (!dev)
 		return -EINVAL;
 
-	while (left > 0 && *current_str) {
+	copy_from_user(current_str, src, count);
+
+	while (left > 0) {
 		if (tx_full(dev))
 			break;
-		iowrite32(*current_str, dev->base_addr + XSC_SEM_FIFO_TX);
-		current_str++;
+		iowrite32(current_str[count - left],
+			  dev->base_addr + XSC_SEM_FIFO_TX);
 		left--;
 	}
 
@@ -198,6 +201,7 @@ static irqreturn_t xsc_sem_dev_irq(int irq, void *device)
 	return IRQ_HANDLED;
 }
 
+#ifdef CONFIG_ARCH_ZYNQMP
 /*
  * CSU register access throught ATF. See
  * https://www.xilinx.com/support/answers/71089.html
@@ -250,6 +254,32 @@ static int init_icap(void)
 
 	return zynqmp_write_register(0xffca3008, val & ~1);
 }
+
+#elif defined(CONFIG_ARCH_ZYNQ)
+
+static int init_icap(void)
+{
+	uint32_t value;
+	void __iomem *base_addr = ioremap(0xF8007000, 4);
+
+	if (!base_addr) {
+		pr_err("ioremap failed\n");
+		return -ENOMEM;
+	}
+
+	/*
+	 * Clear bit 27 of the DEVCFG CTRL register (See
+	 * https://www.xilinx.com/support/answers/66975.html)
+	 */
+	value = ioread32(base_addr);
+	iowrite32(value & ~(1 << 27), base_addr);
+
+	iounmap(base_addr);
+
+	return 0;
+}
+
+#endif
 
 static int xsc_sem_probe_or_remove(bool probe, struct platform_device *pdev)
 {
