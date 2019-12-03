@@ -30,6 +30,8 @@
 
 #define XSC_SEM_CTRL_INTR	BIT(4)
 
+#define XSC_RESET_GPIO		0x43c1000
+
 struct xsc_sem {
 	struct device		*dev;
 	int			irq;		/* interrupt */
@@ -257,10 +259,33 @@ static int init_icap(void)
 
 #elif defined(CONFIG_ARCH_ZYNQ)
 
+static int set_reset(uint32_t value)
+{
+	void __iomem *base_addr = ioremap(XSC_RESET_GPIO, 4);
+
+	if (!base_addr) {
+		pr_err("ioremap failed\n");
+		return -ENOMEM;
+	}
+
+	iowrite32(value, base_addr);
+
+	iounmap(base_addr);
+
+	return 0;
+}
+
 static int init_icap(void)
 {
 	uint32_t value;
-	void __iomem *base_addr = ioremap(0xF8007000, 4);
+	void __iomem *base_addr;
+	int ret;
+
+	ret = set_reset(1);
+	if (ret != 0)
+		return ret;
+
+	base_addr = ioremap(0xF8007000, 4);
 
 	if (!base_addr) {
 		pr_err("ioremap failed\n");
@@ -275,6 +300,10 @@ static int init_icap(void)
 	iowrite32(value & ~(1 << 27), base_addr);
 
 	iounmap(base_addr);
+	
+	ret = set_reset(0);
+	if (ret != 0)
+		return ret;
 
 	return 0;
 }
