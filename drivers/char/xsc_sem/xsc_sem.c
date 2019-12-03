@@ -7,6 +7,7 @@
 #include <linux/cdev.h>
 #include <linux/uaccess.h>
 #include <linux/poll.h>
+#include <linux/gpio/consumer.h>
 #include <asm/io.h>
 
 #include <linux/firmware/xilinx/zynqmp/firmware.h>
@@ -29,8 +30,6 @@
 #define XSC_SEM_RX_DATA		BIT(0)
 
 #define XSC_SEM_CTRL_INTR	BIT(4)
-
-#define XSC_RESET_GPIO		0x43c1000
 
 struct xsc_sem {
 	struct device		*dev;
@@ -246,7 +245,7 @@ static uint32_t zynqmp_write_register(uint32_t addr, uint32_t val)
 	return ret;
 }
 
-static int init_icap(void)
+static int init_icap(struct device *dev)
 {
 	uint32_t val;
 	int rc = zynqmp_read_register(0xffca3008, &val);
@@ -259,33 +258,33 @@ static int init_icap(void)
 
 #elif defined(CONFIG_ARCH_ZYNQ)
 
-static int set_reset(uint32_t value)
+/*
+ * This reset is used to hold the TMR SEM IP, it won't reset the device.
+ * Set value to 1 to unhold it and be able to access the AXI registers.
+ */
+static int set_reset(struct device *dev, uint32_t value)
 {
-	void __iomem *base_addr = ioremap(XSC_RESET_GPIO, 4);
+	struct gpio_desc *desc = gpiod_get(dev, "reset", GPIOD_OUT_HIGH);
 
-	if (!base_addr) {
-		pr_err("ioremap failed\n");
-		return -ENOMEM;
+	if (IS_ERR(desc)) {
+		pr_err("Cannot get GPIO for reset.\n");
+		return PTR_ERR(desc);
 	}
 
-	iowrite32(value, base_addr);
+	gpiod_set_value(desc, value);
 
-	iounmap(base_addr);
+	gpiod_put(desc);
 
 	return 0;
 }
 
-static int init_icap(void)
+static int init_icap(struct device *dev)
 {
 	uint32_t value;
 	void __iomem *base_addr;
 	int ret;
 
-	ret = set_reset(1);
-	if (ret != 0)
-		return ret;
-
-	base_addr = ioremap(0xF8007000, 4);
+	base_addr = ioremap(0xF8007000, 4096);
 
 	if (!base_addr) {
 		pr_err("ioremap failed\n");
@@ -298,10 +297,11 @@ static int init_icap(void)
 	 */
 	value = ioread32(base_addr);
 	iowrite32(value & ~(1 << 27), base_addr);
+	value = ioread32(base_addr);
 
 	iounmap(base_addr);
-	
-	ret = set_reset(0);
+
+	ret = set_reset(dev, 1);
 	if (ret != 0)
 		return ret;
 
@@ -327,7 +327,7 @@ static int xsc_sem_probe_or_remove(bool probe, struct platform_device *pdev)
 
 	pr_info("Probing\n");
 
-	rc = init_icap();
+	rc = init_icap(&pdev->dev);
 	if (rc) {
 		pr_info("Unable to initialize ICAP");
 		return rc;
