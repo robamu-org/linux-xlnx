@@ -1,0 +1,66 @@
+GPIO assisted NAND flash
+
+The GPIO assisted NAND flash uses a memory mapped interface to
+read/write the NAND commands and data and GPIO pins for the control
+signals.
+
+Required properties:
+- compatible : "gpio-control-nand-shared"
+- gpios : Specifies the shared GPIO pins to control the NAND devices.
+  The order of GPIO references is:  ALE, CLE, RDY and an optional nWP.
+
+Optional properties:
+- bank-width : Width (in bytes) of the device.  If not present, the width
+  defaults to 1 byte.
+- chip-delay : chip dependent delay for transferring data from array to
+  read registers (tR).  If not present then a default of 20us is used.
+- xsc,concat : Boolean value (1 or 0) to use mtdconcat to create 1 mtd
+  device containing all NAND chips.
+
+The device tree must have at least one sub-node with the name nandflash.
+It defines a NAND chip, with the address space to access it and the optional
+nCE (Chip Enable) GPIO pin.
+
+Required properties:
+- reg : should specify localbus chip select and size used for the chip.  The
+  resource describes the data bus connected to the NAND flash and all accesses
+  are made in native endianness.
+- #address-cells, #size-cells : Must be present if the device has sub-nodes
+  representing partitions.
+
+
+The nandflash sub-nodes may optionally contain sub-nodes
+describing partitions of the address space. See partition.txt for more detail.
+
+The gpio-control-nand-shared node may also contain a "partitions" or multiple
+partitions sub-nodes to be used with mtdconcat if xsc,concat is set to 1.
+
+Examples:
+
+gpio-nand@1,0 {
+	compatible = "gpio-control-nand-shared";
+	gpios = <&banka 1 0>,	/* RDY */
+		<&banka 3 0>, 	/* ALE */
+		<&banka 4 0>, 	/* CLE */
+		<0>;		/* nWP */
+
+	nandflash@0 {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		reg = <0x80090000 0x10000>;
+		gpios = <0>;    /* nCE */
+
+		partition@0 {
+			label = "backup-nand0";
+			reg = <0x00000000 0x40000000>;
+		};
+	};
+
+	nandflash@1 {
+	...
+	};
+
+	partition@0 {
+	...
+	};
+};

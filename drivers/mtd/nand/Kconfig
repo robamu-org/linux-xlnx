@@ -68,6 +68,15 @@ config MTD_NAND_GPIO
 	  connected to GPIO pins, and commands and data are communicated
 	  via a memory mapped interface.
 
+config MTD_NAND_GPIO_SHARED
+	tristate "Shared GPIO assisted NAND Flash driver"
+	depends on GPIOLIB || COMPILE_TEST
+	help
+	  This enables a NAND flash driver where control signals are
+	  connected to GPIO pins, and commands and data are communicated
+	  via a memory mapped interface. This allows multiple NAND devices
+	  to share the same GPIOs.
+
 config MTD_NAND_AMS_DELTA
 	tristate "NAND Flash device on Amstrad E3"
 	depends on MACH_AMS_DELTA
