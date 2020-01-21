@@ -1203,6 +1203,7 @@ static int sdhci_arasan_probe(struct platform_device *pdev)
 			"xsc,pwr-ctrl", GPIOD_OUT_HIGH);
 		if (IS_ERR(sdhci_arasan->pwr_ctrl)) {
 			ret = PTR_ERR(sdhci_arasan->pwr_ctrl);
+			dev_err(&pdev->dev, "couldn't get xsc,pwr-ctrl gpio\n");
 			device_remove_group(&pdev->dev, &sdhci_arasan_xsc_attrs_group);
 			goto sysfs_remove;
 		}
@@ -1213,6 +1214,7 @@ static int sdhci_arasan_probe(struct platform_device *pdev)
 			"xsc,pwr-en-n", GPIOD_IN);
 		if (IS_ERR(sdhci_arasan->pwr_en_n)) {
 			ret = PTR_ERR(sdhci_arasan->pwr_en_n);
+			dev_err(&pdev->dev, "couldn't get xsc,pwr-en-n gpio\n");
 			goto sysfs_remove;
 		}
 		dev_dbg(&pdev->dev, "xsc,pwr-en-n ok\n");
@@ -1222,6 +1224,7 @@ static int sdhci_arasan_probe(struct platform_device *pdev)
 			"xsc,overcur-1v8-n", GPIOD_IN);
 		if (IS_ERR(sdhci_arasan->overcur_1v8_n)) {
 			ret = PTR_ERR(sdhci_arasan->overcur_1v8_n);
+			dev_err(&pdev->dev, "couldn't get xsc,overcur-1v8-n gpio\n");
 			goto sysfs_remove;
 		}
 		dev_dbg(&pdev->dev, "xsc,overcur-1v8-n ok\n");
@@ -1231,6 +1234,7 @@ static int sdhci_arasan_probe(struct platform_device *pdev)
 			"xsc,overcur-3v3-n", GPIOD_IN);
 		if (IS_ERR(sdhci_arasan->overcur_3v3_n)) {
 			ret = PTR_ERR(sdhci_arasan->overcur_3v3_n);
+			dev_err(&pdev->dev, "couldn't get xsc,overcur-3v3-n gpio\n");
 			goto sysfs_remove;
 		}
 		dev_dbg(&pdev->dev, "xsc,overcur-3v3-n ok\n");
