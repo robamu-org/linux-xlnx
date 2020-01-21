@@ -672,6 +672,7 @@ static const struct of_device_id sdhci_arasan_of_match[] = {
 	{ .compatible = "arasan,sdhci-5.1" },
 	{ .compatible = "arasan,sdhci-4.9a" },
 	{ .compatible = "xlnx,zynqmp-8.9a" },
+	{ .compatible = "xsc,zynqmp-8.9a" },
 
 	{ /* sentinel */ }
 };
@@ -1056,7 +1057,8 @@ static int sdhci_arasan_probe(struct platform_device *pdev)
 	struct device_node *np = pdev->dev.of_node;
 	unsigned int host_quirks2 = 0;
 
-	if (of_device_is_compatible(pdev->dev.of_node, "xlnx,zynqmp-8.9a")) {
+	if (of_device_is_compatible(pdev->dev.of_node, "xlnx,zynqmp-8.9a") ||
+	    of_device_is_compatible(pdev->dev.of_node, "xsc,zynqmp-8.9a")) {
 		char *soc_rev;
 
 		/* read Silicon version using nvmem driver */
@@ -1157,12 +1159,15 @@ static int sdhci_arasan_probe(struct platform_device *pdev)
 	}
 
 	if (of_device_is_compatible(pdev->dev.of_node, "xlnx,zynqmp-8.9a") ||
+		of_device_is_compatible(pdev->dev.of_node, "xsc,zynqmp-8.9a") ||
 		of_device_is_compatible(pdev->dev.of_node,
 					"arasan,sdhci-8.9a")) {
 		host->quirks |= SDHCI_QUIRK_MULTIBLOCK_READ_ACMD12;
 		host->quirks2 |= SDHCI_QUIRK2_CLOCK_STANDARD_25_BROKEN;
 		if (of_device_is_compatible(pdev->dev.of_node,
-					    "xlnx,zynqmp-8.9a")) {
+					    "xlnx,zynqmp-8.9a") ||
+		    of_device_is_compatible(pdev->dev.of_node,
+					    "xsc,zynqmp-8.9a")) {
 			ret = of_property_read_u32(pdev->dev.of_node,
 						   "xlnx,mio_bank",
 						   &sdhci_arasan->mio_bank);
@@ -1186,7 +1191,7 @@ static int sdhci_arasan_probe(struct platform_device *pdev)
 
 	/* XSC power control and overcurrent detection */
 	sdhci_arasan->pwr_ctrl = ERR_PTR(-EOPNOTSUPP);
-	if (of_device_is_compatible(pdev->dev.of_node, "xlnx,zynqmp-8.9a")) {
+	if (of_device_is_compatible(pdev->dev.of_node, "xsc,zynqmp-8.9a")) {
 
 		sdhci_arasan->is_overcur = XSC_NO_OVERCUR;
 		ret = device_add_group(&pdev->dev, &sdhci_arasan_xsc_attrs_group);
