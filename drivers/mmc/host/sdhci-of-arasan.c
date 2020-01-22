@@ -672,6 +672,7 @@ static const struct of_device_id sdhci_arasan_of_match[] = {
 	{ .compatible = "arasan,sdhci-5.1" },
 	{ .compatible = "arasan,sdhci-4.9a" },
 	{ .compatible = "xlnx,zynqmp-8.9a" },
+	{ .compatible = "xsc,zynqmp-8.9a" },
 
 	{ /* sentinel */ }
 };
@@ -1056,7 +1057,8 @@ static int sdhci_arasan_probe(struct platform_device *pdev)
 	struct device_node *np = pdev->dev.of_node;
 	unsigned int host_quirks2 = 0;
 
-	if (of_device_is_compatible(pdev->dev.of_node, "xlnx,zynqmp-8.9a")) {
+	if (of_device_is_compatible(pdev->dev.of_node, "xlnx,zynqmp-8.9a") ||
+	    of_device_is_compatible(pdev->dev.of_node, "xsc,zynqmp-8.9a")) {
 		char *soc_rev;
 
 		/* read Silicon version using nvmem driver */
@@ -1157,12 +1159,15 @@ static int sdhci_arasan_probe(struct platform_device *pdev)
 	}
 
 	if (of_device_is_compatible(pdev->dev.of_node, "xlnx,zynqmp-8.9a") ||
+		of_device_is_compatible(pdev->dev.of_node, "xsc,zynqmp-8.9a") ||
 		of_device_is_compatible(pdev->dev.of_node,
 					"arasan,sdhci-8.9a")) {
 		host->quirks |= SDHCI_QUIRK_MULTIBLOCK_READ_ACMD12;
 		host->quirks2 |= SDHCI_QUIRK2_CLOCK_STANDARD_25_BROKEN;
 		if (of_device_is_compatible(pdev->dev.of_node,
-					    "xlnx,zynqmp-8.9a")) {
+					    "xlnx,zynqmp-8.9a") ||
+		    of_device_is_compatible(pdev->dev.of_node,
+					    "xsc,zynqmp-8.9a")) {
 			ret = of_property_read_u32(pdev->dev.of_node,
 						   "xlnx,mio_bank",
 						   &sdhci_arasan->mio_bank);
@@ -1186,7 +1191,7 @@ static int sdhci_arasan_probe(struct platform_device *pdev)
 
 	/* XSC power control and overcurrent detection */
 	sdhci_arasan->pwr_ctrl = ERR_PTR(-EOPNOTSUPP);
-	if (of_device_is_compatible(pdev->dev.of_node, "xlnx,zynqmp-8.9a")) {
+	if (of_device_is_compatible(pdev->dev.of_node, "xsc,zynqmp-8.9a")) {
 
 		sdhci_arasan->is_overcur = XSC_NO_OVERCUR;
 		ret = device_add_group(&pdev->dev, &sdhci_arasan_xsc_attrs_group);
@@ -1198,6 +1203,7 @@ static int sdhci_arasan_probe(struct platform_device *pdev)
 			"xsc,pwr-ctrl", GPIOD_OUT_HIGH);
 		if (IS_ERR(sdhci_arasan->pwr_ctrl)) {
 			ret = PTR_ERR(sdhci_arasan->pwr_ctrl);
+			dev_err(&pdev->dev, "couldn't get xsc,pwr-ctrl gpio\n");
 			device_remove_group(&pdev->dev, &sdhci_arasan_xsc_attrs_group);
 			goto sysfs_remove;
 		}
@@ -1208,6 +1214,7 @@ static int sdhci_arasan_probe(struct platform_device *pdev)
 			"xsc,pwr-en-n", GPIOD_IN);
 		if (IS_ERR(sdhci_arasan->pwr_en_n)) {
 			ret = PTR_ERR(sdhci_arasan->pwr_en_n);
+			dev_err(&pdev->dev, "couldn't get xsc,pwr-en-n gpio\n");
 			goto sysfs_remove;
 		}
 		dev_dbg(&pdev->dev, "xsc,pwr-en-n ok\n");
@@ -1217,6 +1224,7 @@ static int sdhci_arasan_probe(struct platform_device *pdev)
 			"xsc,overcur-1v8-n", GPIOD_IN);
 		if (IS_ERR(sdhci_arasan->overcur_1v8_n)) {
 			ret = PTR_ERR(sdhci_arasan->overcur_1v8_n);
+			dev_err(&pdev->dev, "couldn't get xsc,overcur-1v8-n gpio\n");
 			goto sysfs_remove;
 		}
 		dev_dbg(&pdev->dev, "xsc,overcur-1v8-n ok\n");
@@ -1226,6 +1234,7 @@ static int sdhci_arasan_probe(struct platform_device *pdev)
 			"xsc,overcur-3v3-n", GPIOD_IN);
 		if (IS_ERR(sdhci_arasan->overcur_3v3_n)) {
 			ret = PTR_ERR(sdhci_arasan->overcur_3v3_n);
+			dev_err(&pdev->dev, "couldn't get xsc,overcur-3v3-n gpio\n");
 			goto sysfs_remove;
 		}
 		dev_dbg(&pdev->dev, "xsc,overcur-3v3-n ok\n");
