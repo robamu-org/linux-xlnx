@@ -44,6 +44,9 @@ Required Properties for "xsc,zynqmp-8.9a":
   - xsc,tristate-reg: Address of the MIO tri-state register for the eMMC data
     lines
   - xsc,tristate-mask: MIO Tri-state Mask for the eMMC data lines
+  - xsc,pull-high-low-reg: Address of the pull high-low register for the
+    eMMC data lines
+  - xsc,pull-down-mask: Pull-Down Mask for the eMMC data lines
 
 Optional Properties:
   - broken-mmc-highspeed: Indicates to force
