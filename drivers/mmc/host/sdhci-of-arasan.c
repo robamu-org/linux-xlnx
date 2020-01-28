@@ -942,8 +942,6 @@ static int sdhci_arasan_xsc_enable(struct device *dev)
 	__raw_writel(pull_state, sdhci_arasan->pull_high_low_regs);
 
 	gpiod_set_value(sdhci_arasan->pwr_ctrl, XSC_PWR_CTRL_EN);
-	/* clear overcur state */
-	sdhci_arasan->is_overcur = false;
 
 	mio_state = __raw_readl(sdhci_arasan->tristate_regs);
 	mio_state &= ~sdhci_arasan->tristate_mask;
@@ -971,10 +969,16 @@ static int sdhci_arasan_xsc_enable(struct device *dev)
 static ssize_t sdhci_arasan_xsc_pwr_en_store(struct device *dev,
 	struct device_attribute *attr, const char *buf, size_t count)
 {
+	struct sdhci_host *host = dev_get_drvdata(dev);
+	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
+	struct sdhci_arasan_data *sdhci_arasan = sdhci_pltfm_priv(pltfm_host);
 	int enable = simple_strtol(buf, NULL, 0);
 
 	if (enable != 0 && enable != 1)
 		return -EINVAL;
+
+	/* Clear overcur state */
+	sdhci_arasan->is_overcur = false;
 
 	if (enable == 0) {
 		sdhci_arasan_xsc_disable(dev);
