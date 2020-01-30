@@ -119,13 +119,17 @@ struct sdhci_arasan_data {
 	/* XSC q8-reva power control and overcurrent protection */
 	u32 tristate_reg;	/* MIO_MST_TRI Register     */
 	u32 tristate_mask;	/* MIO tristate enable mask */
-	void __iomem	*regs;
+	u32 pull_high_low_reg;	/* bankX_ctrl4 Register     */
+	u32 pull_down_mask;	/* pull_down mask            */
+	void __iomem	*tristate_regs;
+	void __iomem	*pull_high_low_regs;
 	struct gpio_desc *pwr_ctrl;
 	struct gpio_desc *pwr_en_n;
 	struct gpio_desc *overcur_1v8_n;
 	struct gpio_desc *overcur_3v3_n;
 	int		pwr_en_n_irq;
 	int		is_overcur;
+	struct timer_list pull_down_timer;
 
 
 /* Controller does not have CD wired and will not function normally without */
@@ -864,6 +868,17 @@ static void sdhci_arasan_unregister_sdclk(struct device *dev)
 #define XSC_PWR_CTRL_EN		1
 #define XSC_PWR_CTRL_OFF	0
 
+static void sdhci_arasan_xsc_pull_down_timer(unsigned long data)
+{
+	struct sdhci_arasan_data *sdhci_arasan =
+		(struct sdhci_arasan_data*) data;
+	u32 pull_state;
+
+	pull_state =  __raw_readl(sdhci_arasan->pull_high_low_regs);
+	pull_state &= sdhci_arasan->pull_down_mask;
+	__raw_writel(pull_state, sdhci_arasan->pull_high_low_regs);
+}
+
 static bool sdhci_arasan_xsc_is_pwr_en(struct sdhci_arasan_data *sdhci_arasan)
 {
 	return (gpiod_get_value(sdhci_arasan->pwr_ctrl) == XSC_PWR_CTRL_EN);
@@ -891,13 +906,15 @@ static int sdhci_arasan_xsc_disable(struct device *dev)
 	clk_disable(pltfm_host->clk);
 	clk_disable(sdhci_arasan->clk_ahb);
 
-	mio_state = __raw_readl(sdhci_arasan->regs);
+	mio_state = __raw_readl(sdhci_arasan->tristate_regs);
 	mio_state |= sdhci_arasan->tristate_mask;
-	__raw_writel(mio_state, sdhci_arasan->regs);
+	__raw_writel(mio_state, sdhci_arasan->tristate_regs);
 
 	gpiod_set_value(sdhci_arasan->pwr_ctrl, XSC_PWR_CTRL_OFF);
 
-	mmc_detect_change(host->mmc, msecs_to_jiffies(200));
+	mod_timer(&sdhci_arasan->pull_down_timer, jiffies + HZ/2);
+
+	mmc_detect_change(host->mmc, msecs_to_jiffies(0));
 
 	return ret;
 }
@@ -910,6 +927,7 @@ static int sdhci_arasan_xsc_enable(struct device *dev)
 	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
 	struct sdhci_arasan_data *sdhci_arasan = sdhci_pltfm_priv(pltfm_host);
 	u32 mio_state;
+	u32 pull_state;
 	int ret = 0;
 
 	dev_dbg(dev, "sdhci_arasan_xsc_enable.\n");
@@ -917,13 +935,17 @@ static int sdhci_arasan_xsc_enable(struct device *dev)
 	if (sdhci_arasan_xsc_is_pwr_en(sdhci_arasan))
 		return ret;
 
-	gpiod_set_value(sdhci_arasan->pwr_ctrl, XSC_PWR_CTRL_EN);
-	/* clear overcur state */
-	sdhci_arasan->is_overcur = false;
+	del_timer_sync(&sdhci_arasan->pull_down_timer);
 
-	mio_state = __raw_readl(sdhci_arasan->regs);
+	pull_state =  __raw_readl(sdhci_arasan->pull_high_low_regs);
+	pull_state |= ~sdhci_arasan->pull_down_mask;
+	__raw_writel(pull_state, sdhci_arasan->pull_high_low_regs);
+
+	gpiod_set_value(sdhci_arasan->pwr_ctrl, XSC_PWR_CTRL_EN);
+
+	mio_state = __raw_readl(sdhci_arasan->tristate_regs);
 	mio_state &= ~sdhci_arasan->tristate_mask;
-	__raw_writel(mio_state, sdhci_arasan->regs);
+	__raw_writel(mio_state, sdhci_arasan->tristate_regs);
 
 	ret = clk_enable(sdhci_arasan->clk_ahb);
 	if (ret) {
@@ -947,10 +969,16 @@ static int sdhci_arasan_xsc_enable(struct device *dev)
 static ssize_t sdhci_arasan_xsc_pwr_en_store(struct device *dev,
 	struct device_attribute *attr, const char *buf, size_t count)
 {
+	struct sdhci_host *host = dev_get_drvdata(dev);
+	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
+	struct sdhci_arasan_data *sdhci_arasan = sdhci_pltfm_priv(pltfm_host);
 	int enable = simple_strtol(buf, NULL, 0);
 
 	if (enable != 0 && enable != 1)
 		return -EINVAL;
+
+	/* Clear overcur state */
+	sdhci_arasan->is_overcur = false;
 
 	if (enable == 0) {
 		sdhci_arasan_xsc_disable(dev);
@@ -1034,13 +1062,15 @@ static irqreturn_t overcur_irq_handler(int irq, void* data)
 	clk_disable(pltfm_host->clk);
 	clk_disable(sdhci_arasan->clk_ahb);
 
-	mio_state = __raw_readl(sdhci_arasan->regs);
+	mio_state = __raw_readl(sdhci_arasan->tristate_regs);
 	mio_state |= sdhci_arasan->tristate_mask;
-	__raw_writel(mio_state, sdhci_arasan->regs);
+	__raw_writel(mio_state, sdhci_arasan->tristate_regs);
 
 	gpiod_set_value(sdhci_arasan->pwr_ctrl, XSC_PWR_CTRL_OFF);
 
-	mmc_detect_change(host->mmc, msecs_to_jiffies(200));
+	mod_timer(&sdhci_arasan->pull_down_timer, jiffies + HZ/2);
+
+	mmc_detect_change(host->mmc, msecs_to_jiffies(0));
 
 	return IRQ_HANDLED;
 }
@@ -1272,8 +1302,36 @@ static int sdhci_arasan_probe(struct platform_device *pdev)
 			"\"xsc,tristate-mask \" property is missing.\n");
 			goto sysfs_remove;
 		}
-		sdhci_arasan->regs = devm_ioremap(&pdev->dev,
-			sdhci_arasan->tristate_reg, 0x4);
+
+		sdhci_arasan->tristate_regs =
+			devm_ioremap(&pdev->dev,
+				sdhci_arasan->tristate_reg, 0x4);
+
+		/* enable read/write to MIO Pull up/down register */
+		ret = of_property_read_u32(pdev->dev.of_node,
+					   "xsc,pull-high-low-reg",
+					   &sdhci_arasan->pull_high_low_reg);
+		if (ret < 0) {
+			dev_err(&pdev->dev,
+			"\"xsc,pull-high-low-reg \" property is missing.\n");
+			goto sysfs_remove;
+		}
+		ret = of_property_read_u32(pdev->dev.of_node,
+					   "xsc,pull-down-mask",
+					   &sdhci_arasan->pull_down_mask);
+		if (ret < 0) {
+			dev_err(&pdev->dev,
+			"\"xsc,pull-down-mask \" property is missing.\n");
+			goto sysfs_remove;
+		}
+
+		sdhci_arasan->pull_high_low_regs =
+			devm_ioremap(&pdev->dev,
+				sdhci_arasan->pull_high_low_reg, 0x4);
+
+		setup_timer(&sdhci_arasan->pull_down_timer,
+			sdhci_arasan_xsc_pull_down_timer,
+			(unsigned long) sdhci_arasan);
 	}
 
 	sdhci_arasan->pinctrl = devm_pinctrl_get(&pdev->dev);
