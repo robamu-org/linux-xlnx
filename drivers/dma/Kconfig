@@ -9,7 +9,7 @@ menuconfig DMADEVICES
 	  DMA engines can do asynchronous data transfers without
 	  involving the host CPU.  Currently, this framework can be
 	  used to offload memory copies in the network stack and
-	  RAID operations in the MD driver.  This menu only presents
+	  RAID operations in the MD driver.  This menu only presnts
 	  DMA Device drivers supported by the configured arch, it may
 	  be empty in some cases.
 
@@ -565,6 +565,13 @@ config XGENE_DMA
 	select ASYNC_TX_ENABLE_CHANNEL_SWITCH
 	help
 	  Enable support for the APM X-Gene SoC DMA engine.
+
+config XIPHOS_DMA
+	tristate "Xiphos AXI DMA Engine"
+	depends on (!XILINX_DMA && (ARCH_ZYNQ || MICROBLAZE || ARM64))
+	select DMA_ENGINE
+	help
+	  Enable support for Xiphos AXI DMA Soft IP.
 
 source "drivers/dma/xilinx/Kconfig"
 
