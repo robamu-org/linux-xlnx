@@ -15,6 +15,7 @@ struct gpio_nand_platdata {
 	unsigned int num_parts;
 	unsigned int options;
 	int	chip_delay;
+	int	concat;
 };
 
 #endif

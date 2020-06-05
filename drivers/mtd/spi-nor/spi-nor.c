@@ -320,7 +320,7 @@ static inline int set_4byte(struct spi_nor *nor, const struct flash_info *info,
  *
  * Return:	Negative if error occured.
  */
-static int read_ear(struct spi_nor *nor, struct flash_info *info)
+static int read_ear(struct spi_nor *nor, const struct flash_info *info)
 {
 	int ret;
 	u8 val;
@@ -3002,7 +3002,7 @@ int spi_nor_scan(struct spi_nor *nor, const char *name,
 		 const struct spi_nor_hwcaps *hwcaps)
 {
 	struct spi_nor_flash_parameter params;
-	struct flash_info *info = NULL;
+	const struct flash_info *info = NULL;
 	struct device *dev = nor->dev;
 	struct mtd_info *mtd = &nor->mtd;
 	struct device_node *np = spi_nor_get_flash_node(nor);
@@ -3078,6 +3078,8 @@ int spi_nor_scan(struct spi_nor *nor, const char *name,
 	mtd->_read = spi_nor_read;
 #ifdef CONFIG_OF
 	np_spi = of_get_next_parent(np);
+	nor->sector_size = info->sector_size;
+	nor->n_sectors = info->n_sectors;
 	if ((of_property_match_string(np_spi, "compatible",
 		    "xlnx,zynq-qspi-1.0") >= 0) ||
 			(of_property_match_string(np_spi, "compatible",
@@ -3092,8 +3094,7 @@ int spi_nor_scan(struct spi_nor *nor, const char *name,
 				if (is_dual == 1) {
 					/* dual parallel */
 					nor->shift = 1;
-					info->sector_size <<= nor->shift;
-					info->page_size <<= nor->shift;
+					nor->sector_size <<= nor->shift;
 					mtd->size <<= nor->shift;
 					nor->isparallel = 1;
 					nor->isstacked = 0;
@@ -3105,7 +3106,7 @@ int spi_nor_scan(struct spi_nor *nor, const char *name,
 					/* dual stacked */
 					nor->shift = 0;
 					mtd->size <<= 1;
-					info->n_sectors <<= 1;
+					nor->n_sectors <<= 1;
 					nor->isstacked = 1;
 					nor->isparallel = 0;
 #else
@@ -3119,7 +3120,7 @@ int spi_nor_scan(struct spi_nor *nor, const char *name,
 						/* dual stacked */
 						nor->shift = 0;
 						mtd->size <<= 1;
-						info->n_sectors <<= 1;
+						nor->n_sectors <<= 1;
 						nor->isstacked = 1;
 						nor->isparallel = 0;
 					} else {
@@ -3142,9 +3143,6 @@ int spi_nor_scan(struct spi_nor *nor, const char *name,
 	nor->isstacked = 0;
 	nor->isparallel = 0;
 #endif
-
-	nor->n_sectors = info->n_sectors;
-	nor->sector_size = info->sector_size;
 
 	/* NOR protection support for STmicro/Micron chips and similar */
 	if (info->flags & SPI_NOR_HAS_LOCK) {

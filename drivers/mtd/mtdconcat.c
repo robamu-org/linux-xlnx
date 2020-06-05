@@ -44,6 +44,7 @@ struct mtd_concat {
 	struct mtd_info mtd;
 	int num_subdev;
 	struct mtd_info **subdev;
+	struct semaphore access_sem;
 };
 
 /*
@@ -89,7 +90,9 @@ concat_read(struct mtd_info *mtd, loff_t from, size_t len,
 			/* Entire transaction goes into this subdev */
 			size = len;
 
+		down(&concat->access_sem);
 		err = mtd_read(subdev, from, size, &retsize, buf);
+		up(&concat->access_sem);
 
 		/* Save information about bitflips! */
 		if (unlikely(err)) {
@@ -138,7 +141,9 @@ concat_write(struct mtd_info *mtd, loff_t to, size_t len,
 		else
 			size = len;
 
+		down(&concat->access_sem);
 		err = mtd_write(subdev, to, size, &retsize, buf);
+		up(&concat->access_sem);
 		if (err)
 			break;
 
@@ -204,8 +209,10 @@ concat_writev(struct mtd_info *mtd, const struct kvec *vecs,
 		old_iov_len = vecs_copy[entry_high].iov_len;
 		vecs_copy[entry_high].iov_len = size;
 
+		down(&concat->access_sem);
 		err = mtd_writev(subdev, &vecs_copy[entry_low],
 				 entry_high - entry_low + 1, to, &retsize);
+		up(&concat->access_sem);
 
 		vecs_copy[entry_high].iov_len = old_iov_len - size;
 		vecs_copy[entry_high].iov_base += size;
@@ -250,7 +257,9 @@ concat_read_oob(struct mtd_info *mtd, loff_t from, struct mtd_oob_ops *ops)
 		if (from + devops.len > subdev->size)
 			devops.len = subdev->size - from;
 
+		down(&concat->access_sem);
 		err = mtd_read_oob(subdev, from, &devops);
+		up(&concat->access_sem);
 		ops->retlen += devops.retlen;
 		ops->oobretlen += devops.oobretlen;
 
@@ -310,7 +319,9 @@ concat_write_oob(struct mtd_info *mtd, loff_t to, struct mtd_oob_ops *ops)
 		if (to + devops.len > subdev->size)
 			devops.len = subdev->size - to;
 
+		down(&concat->access_sem);
 		err = mtd_write_oob(subdev, to, &devops);
+		up(&concat->access_sem);
 		ops->retlen += devops.retlen;
 		ops->oobretlen += devops.oobretlen;
 		if (err)
@@ -455,6 +466,7 @@ static int concat_erase(struct mtd_info *mtd, struct erase_info *instr)
 
 	/* now do the erase: */
 	err = 0;
+	down(&concat->access_sem);
 	for (; length > 0; i++) {
 		/* loop for all subdevices affected by this request */
 		subdev = concat->subdev[i];	/* get current subdevice */
@@ -487,6 +499,9 @@ static int concat_erase(struct mtd_info *mtd, struct erase_info *instr)
 	}
 	instr->state = erase->state;
 	kfree(erase);
+
+	up(&concat->access_sem);
+
 	if (err)
 		return err;
 
@@ -514,7 +529,9 @@ static int concat_lock(struct mtd_info *mtd, loff_t ofs, uint64_t len)
 		else
 			size = len;
 
+		down(&concat->access_sem);
 		err = mtd_lock(subdev, ofs, size);
+		up(&concat->access_sem);
 		if (err)
 			break;
 
@@ -548,7 +565,9 @@ static int concat_unlock(struct mtd_info *mtd, loff_t ofs, uint64_t len)
 		else
 			size = len;
 
+		down(&concat->access_sem);
 		err = mtd_unlock(subdev, ofs, size);
+		up(&concat->access_sem);
 		if (err)
 			break;
 
@@ -570,7 +589,10 @@ static void concat_sync(struct mtd_info *mtd)
 
 	for (i = 0; i < concat->num_subdev; i++) {
 		struct mtd_info *subdev = concat->subdev[i];
+
+		down(&concat->access_sem);
 		mtd_sync(subdev);
+		up(&concat->access_sem);
 	}
 }
 
@@ -581,7 +603,12 @@ static int concat_suspend(struct mtd_info *mtd)
 
 	for (i = 0; i < concat->num_subdev; i++) {
 		struct mtd_info *subdev = concat->subdev[i];
-		if ((rc = mtd_suspend(subdev)) < 0)
+
+		down(&concat->access_sem);
+		rc = mtd_suspend(subdev);
+		up(&concat->access_sem);
+
+		if (rc < 0)
 			return rc;
 	}
 	return rc;
@@ -594,7 +621,9 @@ static void concat_resume(struct mtd_info *mtd)
 
 	for (i = 0; i < concat->num_subdev; i++) {
 		struct mtd_info *subdev = concat->subdev[i];
+		down(&concat->access_sem);
 		mtd_resume(subdev);
+		up(&concat->access_sem);
 	}
 }
 
@@ -614,7 +643,9 @@ static int concat_block_isbad(struct mtd_info *mtd, loff_t ofs)
 			continue;
 		}
 
+		down(&concat->access_sem);
 		res = mtd_block_isbad(subdev, ofs);
+		up(&concat->access_sem);
 		break;
 	}
 
@@ -634,7 +665,9 @@ static int concat_block_markbad(struct mtd_info *mtd, loff_t ofs)
 			continue;
 		}
 
+		down(&concat->access_sem);
 		err = mtd_block_markbad(subdev, ofs);
+		up(&concat->access_sem);
 		if (!err)
 			mtd->ecc_stats.badblocks++;
 		break;
@@ -653,6 +686,7 @@ static unsigned long concat_get_unmapped_area(struct mtd_info *mtd,
 					      unsigned long flags)
 {
 	struct mtd_concat *concat = CONCAT(mtd);
+	unsigned long ret;
 	int i;
 
 	for (i = 0; i < concat->num_subdev; i++) {
@@ -663,7 +697,11 @@ static unsigned long concat_get_unmapped_area(struct mtd_info *mtd,
 			continue;
 		}
 
-		return mtd_get_unmapped_area(subdev, len, offset, flags);
+		down(&concat->access_sem);
+		ret = mtd_get_unmapped_area(subdev, len, offset, flags);
+		up(&concat->access_sem);
+
+		return ret;
 	}
 
 	return (unsigned long) -ENOSYS;
@@ -701,6 +739,8 @@ struct mtd_info *mtd_concat_create(struct mtd_info *subdev[],	/* subdevices to c
 		return NULL;
 	}
 	concat->subdev = (struct mtd_info **) (concat + 1);
+
+	sema_init(&concat->access_sem, 1);
 
 	/*
 	 * Set up the new "super" device's MTD object structure, check for

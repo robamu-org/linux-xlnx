@@ -370,6 +370,7 @@ static int xsc_sem_probe_or_remove(bool probe, struct platform_device *pdev)
 	}
 
 	mutex_init(&xsc_sem_dev->io_lock);
+	spin_lock_init(&xsc_sem_dev->spinlock);
 	init_waitqueue_head(&xsc_sem_dev->poll_wait);
 
 	tasklet_init(&xsc_sem_dev->event_tasklet, event_dispatch,

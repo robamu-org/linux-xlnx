@@ -41,7 +41,7 @@
 	pr_debug("%s: " DRIVER_NAME ": " f, mmc_hostname(host->mmc), ## x)
 
 #define SDHCI_DUMP(f, x...) \
-	pr_err("%s: " DRIVER_NAME ": " f, mmc_hostname(host->mmc), ## x)
+	pr_debug("%s: " DRIVER_NAME ": " f, mmc_hostname(host->mmc), ## x)
 
 #define MAX_TUNING_LOOP 40
 
@@ -54,6 +54,15 @@ static void sdhci_enable_preset_value(struct sdhci_host *host, bool enable);
 
 void sdhci_dumpregs(struct sdhci_host *host)
 {
+	struct mmc_host *mmc = host->mmc;
+
+	/*
+ 	 * Do not show register dump if power is off.
+ 	 */
+	if (mmc->ios.power_mode == MMC_POWER_UNDEFINED ||
+	    mmc->ios.power_mode == MMC_POWER_OFF)
+		return;
+
 	SDHCI_DUMP("============ SDHCI REGISTER DUMP ===========\n");
 
 	SDHCI_DUMP("Sys addr:  0x%08x | Version:  0x%08x\n",
