@@ -859,12 +859,12 @@ static int stm_lock(struct spi_nor *nor, loff_t ofs, uint64_t len)
 		return 0;
 
 	/* If anything below us is unlocked, we can't use 'bottom' protection */
-	if (!stm_is_locked_sr(nor, 0, ofs, status_old))
+	if (ofs != 0 && !stm_is_locked_sr(nor, 0, ofs, status_old))
 		can_be_bottom = false;
 
 	/* If anything above us is unlocked, we can't use 'top' protection */
-	if (!stm_is_locked_sr(nor, ofs + len, mtd_size - (ofs + len),
-				status_old))
+	if ((mtd_size - (ofs + len)) != 0 &&
+	    !stm_is_locked_sr(nor, ofs + len, mtd_size - (ofs + len), status_old))
 		can_be_top = false;
 
 	if (!can_be_bottom && !can_be_top) {
@@ -962,12 +962,12 @@ static int stm_unlock(struct spi_nor *nor, loff_t ofs, uint64_t len)
 		return 0;
 
 	/* If anything below us is locked, we can't use 'top' protection */
-	if (!stm_is_unlocked_sr(nor, 0, ofs, status_old))
+	if (ofs != 0 && !stm_is_unlocked_sr(nor, 0, ofs, status_old))
 		can_be_top = false;
 
 	/* If anything above us is locked, we can't use 'bottom' protection */
-	if (!stm_is_unlocked_sr(nor, ofs + len, mtd_size - (ofs + len),
-				status_old))
+	if (mtd_size - (ofs + len) != 0 &&
+	    !stm_is_unlocked_sr(nor, ofs + len, mtd_size - (ofs + len), status_old))
 		can_be_bottom = false;
 
 	if (!can_be_bottom && !can_be_top) {
