@@ -167,7 +167,8 @@ static ssize_t io_dev_read(struct file *f, char __user *dst, size_t count,
 		left--;
 	}
 
-	copy_to_user(dst, current_str, count - left);
+	if (copy_to_user(dst, current_str, count - left))
+		return -EFAULT;
 
 	return count - left;
 }
@@ -182,7 +183,8 @@ static ssize_t io_dev_write(struct file *f, const char __user *src,
 	if (!dev)
 		return -EINVAL;
 
-	copy_from_user(current_str, src, count);
+	if (copy_from_user(current_str, src, count))
+		return -EFAULT;
 
 	while (left > 0) {
 		if (tx_full(dev))
