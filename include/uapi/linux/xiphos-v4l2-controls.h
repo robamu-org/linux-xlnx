@@ -47,6 +47,23 @@
  */
 #define V4L2_CID_XIPHOS_INPUT_DELAY	(V4L2_CID_XIPHOS_BASE + 1)
 
+/*
+ * xsc_cl_ctrl_trigger
+ * This control allows the user to configure the trigger.
+ * The control takes 3 u16 values:
+ * - Value 0: first duration in 100 us increments (0-0x7fff)
+ * - Value 1: second duration in 100 us increments (0-0x7fff)
+ * - Value 2:
+ *   * Bit 0: set trigger polarity
+ *     - 0: first half of pulse low, second half high
+ *     - 1: first half of pulse high, second half low
+ *
+ * Setting value 0 or value 1 to 0 deactivates the trigger. Useful to use an external
+ * trigger or free-run mode.
+ *
+ * This control can be set with the VIDIOC_EXT_CTRLS. Note that it is Read Only.
+ */
+#define V4L2_CID_XIPHOS_TRIGGER		(V4L2_CID_XIPHOS_BASE + 2)
 
 /*
  * V4L2_CID_XIPHOS_RAMP
@@ -56,4 +73,4 @@
  *
  * This is not supported yet.
  */
-//#define V4L2_CID_XIPHOS_RAMP		(V4L2_CID_XIPHOS_BASE + 2)
+//#define V4L2_CID_XIPHOS_RAMP		(V4L2_CID_XIPHOS_BASE + 3)
