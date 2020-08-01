@@ -50,9 +50,9 @@
 /*
  * xsc_cl_ctrl_trigger
  * This control allows the user to configure the trigger.
- * The control takes 3 u16 values:
- * - Value 0: first duration in 100 us increments (0-0x7fff)
- * - Value 1: second duration in 100 us increments (0-0x7fff)
+ * The control takes 3 u32 values:
+ * - Value 0: first duration in 100 us increments (0-0x3ffff)
+ * - Value 1: second duration in 100 us increments (0-0x3ffff)
  * - Value 2:
  *   * Bit 0: set trigger polarity
  *     - 0: first half of pulse low, second half high
