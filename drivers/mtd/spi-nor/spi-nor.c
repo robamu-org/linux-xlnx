@@ -859,16 +859,18 @@ static int stm_lock(struct spi_nor *nor, loff_t ofs, uint64_t len)
 		return 0;
 
 	/* If anything below us is unlocked, we can't use 'bottom' protection */
-	if (!stm_is_locked_sr(nor, 0, ofs, status_old))
+	if (ofs != 0 && !stm_is_locked_sr(nor, 0, ofs, status_old))
 		can_be_bottom = false;
 
 	/* If anything above us is unlocked, we can't use 'top' protection */
-	if (!stm_is_locked_sr(nor, ofs + len, mtd_size - (ofs + len),
-				status_old))
+	if ((mtd_size - (ofs + len)) != 0 &&
+	    !stm_is_locked_sr(nor, ofs + len, mtd_size - (ofs + len), status_old))
 		can_be_top = false;
 
-	if (!can_be_bottom && !can_be_top)
+	if (!can_be_bottom && !can_be_top) {
+		dev_err(nor->dev, "stm_lock: can't be bottom, can't be top\n");
 		return -EINVAL;
+	}
 
 	/* Prefer top, if both are valid */
 	use_top = can_be_top;
@@ -893,11 +895,15 @@ static int stm_lock(struct spi_nor *nor, loff_t ofs, uint64_t len)
 
 	val = swap_bits(ilog2(lock_len >> (ilog2(nor->sector_size) - 1))
 			<< shift, 6, 5);
-	if (val & ~mask)
+	if (val & ~mask) {
+		dev_err(nor->dev, "stm_lock: val & ~mask\n");
 		return -EINVAL;
+	}
 	/* Don't "lock" with no region! */
-	if (!(val & mask))
+	if (!(val & mask)) {
+		dev_err(nor->dev, "stm_lock: !(val & mask)\n");
 		return -EINVAL;
+	}
 
 	status_new = (status_old & ~mask & ~SR_TB) | val;
 
@@ -912,8 +918,10 @@ static int stm_lock(struct spi_nor *nor, loff_t ofs, uint64_t len)
 		return 0;
 
 	/* Only modify protection if it will not unlock other areas */
-	if ((status_new & mask) < (status_old & mask))
+	if ((status_new & mask) < (status_old & mask)) {
+		dev_err(nor->dev, "stm_lock: this will unlock unwanted flash regions!\n");
 		return -EINVAL;
+	}
 
 	write_enable(nor);
 	ret = write_sr(nor, status_new);
@@ -954,16 +962,18 @@ static int stm_unlock(struct spi_nor *nor, loff_t ofs, uint64_t len)
 		return 0;
 
 	/* If anything below us is locked, we can't use 'top' protection */
-	if (!stm_is_unlocked_sr(nor, 0, ofs, status_old))
+	if (ofs != 0 && !stm_is_unlocked_sr(nor, 0, ofs, status_old))
 		can_be_top = false;
 
 	/* If anything above us is locked, we can't use 'bottom' protection */
-	if (!stm_is_unlocked_sr(nor, ofs + len, mtd_size - (ofs + len),
-				status_old))
+	if (mtd_size - (ofs + len) != 0 &&
+	    !stm_is_unlocked_sr(nor, ofs + len, mtd_size - (ofs + len), status_old))
 		can_be_bottom = false;
 
-	if (!can_be_bottom && !can_be_top)
+	if (!can_be_bottom && !can_be_top) {
+		dev_err(nor->dev, "stm_unlock: can't be bottom, can't be top\n");
 		return -EINVAL;
+	}
 
 	/* Prefer top, if both are valid */
 	use_top = can_be_top;
@@ -1296,7 +1306,7 @@ static const struct flash_info spi_nor_ids[] = {
 	{ "n25q00",      INFO(0x20ba21, 0, 64 * 1024, 2048, SECT_4K | USE_FSR | SPI_NOR_QUAD_READ | SPI_NOR_HAS_LOCK | NO_CHIP_ERASE) },
 	{ "n25q00a",     INFO(0x20bb21, 0, 64 * 1024, 2048, SECT_4K | USE_FSR | SPI_NOR_QUAD_READ | SPI_NOR_HAS_LOCK | SPI_NOR_HAS_TB | NO_CHIP_ERASE) },
 	{ "mt25ql02g",   INFO(0x20ba22, 0, 64 * 1024, 4096, SECT_4K | USE_FSR | SPI_NOR_QUAD_READ | SPI_NOR_HAS_LOCK | NO_CHIP_ERASE) },
-	{ "mt25ul02g",   INFO(0x20bb22, 0, 64 * 1024, 4096, SECT_4K | USE_FSR | SPI_NOR_QUAD_READ | SPI_NOR_HAS_LOCK | NO_CHIP_ERASE) },
+	{ "mt25ul02g",   INFO(0x20bb22, 0, 64 * 1024, 4096, SECT_4K | USE_FSR | SPI_NOR_QUAD_READ | SPI_NOR_HAS_LOCK | SPI_NOR_HAS_TB | NO_CHIP_ERASE) },
 
 	/* PMC */
 	{ "pm25lv512",   INFO(0,        0, 32 * 1024,    2, SECT_4K_PMC) },
