@@ -46,7 +46,16 @@ struct xsc_sem {
 	struct tasklet_struct	event_tasklet;
 	spinlock_t              spinlock;
 	wait_queue_head_t       poll_wait;      /* Poll event waiter */
+
+	uint32_t		interrupt_state;
 };
+
+enum pcap_method {
+	PCAP_METHOD_ICAP,
+	PCAP_METHOD_PCAP,
+};
+
+static int set_pcap(struct device *dev, enum pcap_method method);
 
 static struct class *xsc_sem_class;
 static dev_t io_cdev_id;
@@ -60,6 +69,40 @@ static bool rx_empty(struct xsc_sem *xsc_sem_dev)
 {
 	return !(ioread32(xsc_sem_dev->base_addr + XSC_SEM_STATUS) & XSC_SEM_RX_DATA);
 }
+
+/* Only accepted values are 'pcap' or 'icap' */
+static ssize_t pcap_store(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t size)
+{
+	struct xsc_sem *xsc_sem = dev_get_drvdata(dev);
+	int ret = 0;
+	if (size < 4)
+		return -EINVAL;
+
+	if (strncmp(buf, "pcap", 4) == 0) {
+		ret = set_pcap(dev, PCAP_METHOD_PCAP);
+	}
+	else if (strncmp(buf, "icap", 4) == 0) {
+		// Restore interrupt state then, set ICAP
+		iowrite32(xsc_sem->interrupt_state, xsc_sem->base_addr + XSC_SEM_CTRL);
+		ret = set_pcap(dev, PCAP_METHOD_ICAP);
+	}
+	else
+		return -EINVAL;
+
+	return ret == 0 ? size : -EACCES;
+}
+
+static DEVICE_ATTR_WO(pcap);
+
+static struct attribute *xsc_sem_ctrl_attr[] = {
+	&dev_attr_pcap.attr,
+	NULL,
+};
+
+static struct attribute_group xsc_sem_ctrl_attrs_group = {
+	.attrs = xsc_sem_ctrl_attr,
+};
 
 static int io_dev_open(struct inode *ino, struct file *f)
 {
@@ -82,6 +125,7 @@ static int io_dev_open(struct inode *ino, struct file *f)
 
 	// Activate interrupts
 	iowrite32(XSC_SEM_CTRL_INTR, dev->base_addr + XSC_SEM_CTRL);
+	dev->interrupt_state = XSC_SEM_CTRL_INTR;
 
 	return 0;
 }
@@ -99,6 +143,7 @@ static int io_dev_release(struct inode *ino, struct file *f)
 
 	// Deactivate interrupts
 	iowrite32(0, dev->base_addr + XSC_SEM_CTRL);
+	dev->interrupt_state = 0;
 
 	return 0;
 }
@@ -122,7 +167,8 @@ static ssize_t io_dev_read(struct file *f, char __user *dst, size_t count,
 		left--;
 	}
 
-	copy_to_user(dst, current_str, count - left);
+	if (copy_to_user(dst, current_str, count - left))
+		return -EFAULT;
 
 	return count - left;
 }
@@ -137,7 +183,8 @@ static ssize_t io_dev_write(struct file *f, const char __user *src,
 	if (!dev)
 		return -EINVAL;
 
-	copy_from_user(current_str, src, count);
+	if (copy_from_user(current_str, src, count))
+		return -EFAULT;
 
 	while (left > 0) {
 		if (tx_full(dev))
@@ -245,7 +292,13 @@ static uint32_t zynqmp_write_register(uint32_t addr, uint32_t val)
 	return ret;
 }
 
-static int init_icap(struct device *dev)
+/*
+ * set_pcap():
+ * Manages PCAP method:
+ * If method is PCAP_METHOD_ICAP, the PL will be accessible by the SEMIP
+ * If method is PCAP_METHOD_PCAP, the PL will be accessible by the user
+ */
+static int set_pcap(struct device *dev, enum pcap_method method)
 {
 	uint32_t val;
 	int rc = zynqmp_read_register(0xffca3008, &val);
@@ -253,7 +306,10 @@ static int init_icap(struct device *dev)
 	if (rc != 0)
 		return rc;
 
-	return zynqmp_write_register(0xffca3008, val & ~1);
+	if (method == PCAP_METHOD_ICAP)
+		return zynqmp_write_register(0xffca3008, val & ~1);
+	else
+		return zynqmp_write_register(0xffca3008, val | 1);
 }
 
 #elif defined(CONFIG_ARCH_ZYNQ)
@@ -278,7 +334,13 @@ static int set_reset(struct device *dev, uint32_t value)
 	return 0;
 }
 
-static int init_icap(struct device *dev)
+/*
+ * set_pcap():
+ * Manages PCAP method:
+ * If method is PCAP_METHOD_ICAP, the PL will be accessible by the SEMIP
+ * If method is PCAP_METHOD_PCAP, the PL will be accessible by the user
+ */
+static int set_pcap(struct device *dev, enum pcap_method method)
 {
 	uint32_t value;
 	void __iomem *base_addr;
@@ -296,7 +358,12 @@ static int init_icap(struct device *dev)
 	 * https://www.xilinx.com/support/answers/66975.html)
 	 */
 	value = ioread32(base_addr);
-	iowrite32(value & ~(1 << 27), base_addr);
+
+	if (method == PCAP_METHOD_ICAP)
+		iowrite32(value & ~(1 << 27), base_addr);
+	else
+		iowrite32(value | (1 << 27), base_addr);
+
 	value = ioread32(base_addr);
 
 	iounmap(base_addr);
@@ -327,7 +394,7 @@ static int xsc_sem_probe_or_remove(bool probe, struct platform_device *pdev)
 
 	pr_info("Probing\n");
 
-	rc = init_icap(&pdev->dev);
+	rc = set_pcap(&pdev->dev, PCAP_METHOD_ICAP);
 	if (rc) {
 		pr_info("Unable to initialize ICAP");
 		return rc;
@@ -424,6 +491,13 @@ static int xsc_sem_probe_or_remove(bool probe, struct platform_device *pdev)
 		goto fail_device;
 	}
 
+	rc = sysfs_create_group(&xsc_sem_dev->io_dev->kobj,
+	                        &xsc_sem_ctrl_attrs_group);
+	if (rc < 0) {
+		dev_err(dev, "couldn't register sysfs group \n");
+		goto fail_device;
+	}
+
 	pr_info("Sucessfully loaded.\n");
 
 	return 0;
@@ -431,6 +505,8 @@ static int xsc_sem_probe_or_remove(bool probe, struct platform_device *pdev)
 remove:
 	if (!xsc_sem_dev)
 		return -EINVAL;
+
+	sysfs_remove_group(&xsc_sem_dev->io_dev->kobj, &xsc_sem_ctrl_attrs_group);
 
 fail_device:
 	/* Remove char devices */
