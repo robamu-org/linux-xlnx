@@ -51,6 +51,7 @@
 struct adxcvr_state {
 	struct device		*dev;
 	void __iomem		*regs;
+	struct clk		*axi_clk;
 	struct clk		*conv_clk;
 	struct clk		*lane_rate_div40_clk;
 	struct clk_hw		lane_clk_hw;
