@@ -39,4 +39,11 @@ config ADF4350
 	  module will be called adf4350.
 
 endmenu
+
+config AXI_CLKMON
+	tristate "Xiphos AXI Clock Monitoring IP Core"
+	depends on COMMON_CLK
+	help
+	  Say yes here to build support for Xiphos' AXI Clock Monitoring IP Core.
+
 endmenu
