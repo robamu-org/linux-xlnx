@@ -975,7 +975,7 @@ int mtd_erase(struct mtd_info *mtd, struct erase_info *instr)
 
 	is_locked = mtd_is_locked(mtd, 0, mtd->size);
 	if (is_locked > 0) {
-		pr_err("mtd_erase mtd_locked!\n");
+		pr_err("mtd_erase: mtd_locked!\n");
 		return -EROFS;
 	}
 
@@ -1079,7 +1079,7 @@ int mtd_write(struct mtd_info *mtd, loff_t to, size_t len, size_t *retlen,
 
 	is_locked = mtd_is_locked(mtd, 0, mtd->size);
 	if (is_locked > 0) {
-		pr_err("mtd_erase mtd_locked!\n");
+		pr_err("mtd_write: mtd_locked!\n");
 		return -EROFS;
 	}
 
@@ -1152,7 +1152,7 @@ int mtd_write_oob(struct mtd_info *mtd, loff_t to,
 
 	is_locked = mtd_is_locked(mtd, 0, mtd->size);
 	if (is_locked > 0) {
-		pr_err("mtd_erase mtd_locked!\n");
+		pr_err("mtd_write_oob: mtd_locked!\n");
 		return -EROFS;
 	}
 
@@ -1673,7 +1673,7 @@ int mtd_block_markbad(struct mtd_info *mtd, loff_t ofs)
 
 	is_locked = mtd_is_locked(mtd, 0, mtd->size);
 	if (is_locked > 0) {
-		pr_err("mtd_erase mtd_locked!\n");
+		pr_err("mtd_block_markbad: mtd_locked!\n");
 		return -EROFS;
 	}
 
@@ -1735,7 +1735,7 @@ int mtd_writev(struct mtd_info *mtd, const struct kvec *vecs,
 
 	is_locked = mtd_is_locked(mtd, 0, mtd->size);
 	if (is_locked > 0) {
-		pr_err("mtd_erase mtd_locked!\n");
+		pr_err("mtd_writev: mtd_locked!\n");
 		return -EROFS;
 	}
 
