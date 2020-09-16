@@ -348,6 +348,11 @@ static int gpio_nand_probe(struct platform_device *pdev)
 		of_node_put(nand_np);
 	}
 
+	if (!shared->dev_count) {
+		dev_warn(&pdev->dev, "No valid NAND devices found\n");
+		return -ENODEV;
+	}
+
 	if (shared->plat.concat) {
 		dev_info(&pdev->dev, "Concatenating all %d devices\n", shared->dev_count);
 		concatenated = mtd_concat_create(
