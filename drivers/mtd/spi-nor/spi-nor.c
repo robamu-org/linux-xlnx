@@ -911,9 +911,6 @@ static int stm_lock(struct spi_nor *nor, loff_t ofs, uint64_t len)
 
 	status_new = (status_old & ~mask & ~SR_TB) | val;
 
-	/* Disallow further writes if WP pin is asserted */
-	status_new |= SR_SRWD;
-
 	if (!use_top)
 		status_new |= SR_TB;
 
@@ -1005,10 +1002,6 @@ static int stm_unlock(struct spi_nor *nor, loff_t ofs, uint64_t len)
 	}
 
 	status_new = (status_old & ~mask & ~SR_TB) | val;
-
-	/* Don't protect status register if we're fully unlocked */
-	if (lock_len == 0)
-		status_new &= ~SR_SRWD;
 
 	if (!use_top)
 		status_new |= SR_TB;

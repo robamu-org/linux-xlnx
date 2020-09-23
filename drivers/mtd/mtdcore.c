@@ -970,12 +970,15 @@ int mtd_erase(struct mtd_info *mtd, struct erase_info *instr)
 	if (instr->addr >= mtd->size || instr->len > mtd->size - instr->addr)
 		return -EINVAL;
 
-	is_locked = mtd->_is_locked(mtd, 0, mtd->size);
-	if (!(mtd->flags & MTD_WRITEABLE) || is_locked) {
-		if (is_locked)
-			pr_err("mtd_erase mtd_locked!\n");
+	if (!(mtd->flags & MTD_WRITEABLE))
+		return -EROFS;
+
+	is_locked = mtd_is_locked(mtd, 0, mtd->size);
+	if (is_locked > 0) {
+		pr_err("mtd_erase: mtd_locked!\n");
 		return -EROFS;
 	}
+
 	instr->fail_addr = MTD_FAIL_ADDR_UNKNOWN;
 	if (!instr->len) {
 		instr->state = MTD_ERASE_DONE;
@@ -1070,12 +1073,16 @@ int mtd_write(struct mtd_info *mtd, loff_t to, size_t len, size_t *retlen,
 
 	if (to < 0 || to >= mtd->size || len > mtd->size - to)
 		return -EINVAL;
-	is_locked = mtd->_is_locked(mtd, to, len);
-	if (!mtd->_write || !(mtd->flags & MTD_WRITEABLE) || is_locked) {
-		if (is_locked)
-			pr_err("mtd_write mtd_locked!\n");
+
+	if (!(mtd->flags & MTD_WRITEABLE))
+		return -EROFS;
+
+	is_locked = mtd_is_locked(mtd, 0, mtd->size);
+	if (is_locked > 0) {
+		pr_err("mtd_write: mtd_locked!\n");
 		return -EROFS;
 	}
+
 	if (!len)
 		return 0;
 	ledtrig_mtd_activity();
@@ -1100,8 +1107,8 @@ int mtd_panic_write(struct mtd_info *mtd, loff_t to, size_t len, size_t *retlen,
 		return -EOPNOTSUPP;
 	if (to < 0 || to >= mtd->size || len > mtd->size - to)
 		return -EINVAL;
-	is_locked = mtd->_is_locked(mtd, to, len);
-	if (!(mtd->flags & MTD_WRITEABLE) || is_locked)
+	is_locked = mtd_is_locked(mtd, to, len);
+	if (!(mtd->flags & MTD_WRITEABLE) || is_locked > 0)
 		return -EROFS;
 	if (!len)
 		return 0;
@@ -1140,12 +1147,15 @@ int mtd_write_oob(struct mtd_info *mtd, loff_t to,
 	if (!mtd->_write_oob)
 		return -EOPNOTSUPP;
 
-	is_locked = mtd->_is_locked(mtd, to, mtd->size);
-	if (!(mtd->flags & MTD_WRITEABLE) || is_locked) {
-		if (is_locked)
-			pr_err("mtd_write_oob: nor locked!\n");
+	if (!(mtd->flags & MTD_WRITEABLE))
+		return -EROFS;
+
+	is_locked = mtd_is_locked(mtd, 0, mtd->size);
+	if (is_locked > 0) {
+		pr_err("mtd_write_oob: mtd_locked!\n");
 		return -EROFS;
 	}
+
 	ledtrig_mtd_activity();
 	return mtd->_write_oob(mtd, to, ops);
 }
@@ -1658,12 +1668,15 @@ int mtd_block_markbad(struct mtd_info *mtd, loff_t ofs)
 		return -EOPNOTSUPP;
 	if (ofs < 0 || ofs >= mtd->size)
 		return -EINVAL;
-	is_locked = mtd->_is_locked(mtd, ofs, mtd->size);
-	if (!(mtd->flags & MTD_WRITEABLE) || is_locked) {
-		if (is_locked)
-			pr_err("mtd_block_markbad: nor locked!\n");
+	if (!(mtd->flags & MTD_WRITEABLE))
+		return -EROFS;
+
+	is_locked = mtd_is_locked(mtd, 0, mtd->size);
+	if (is_locked > 0) {
+		pr_err("mtd_block_markbad: mtd_locked!\n");
 		return -EROFS;
 	}
+
 	return mtd->_block_markbad(mtd, ofs);
 }
 EXPORT_SYMBOL_GPL(mtd_block_markbad);
@@ -1717,12 +1730,15 @@ int mtd_writev(struct mtd_info *mtd, const struct kvec *vecs,
 	int is_locked;
 	*retlen = 0;
 
-	is_locked = mtd->_is_locked(mtd, to, mtd->size);
-	if (!(mtd->flags & MTD_WRITEABLE) || is_locked) {
-		if (is_locked)
-			pr_err("mtd_writev: nor locked!\n");
+	if (!(mtd->flags & MTD_WRITEABLE))
+		return -EROFS;
+
+	is_locked = mtd_is_locked(mtd, 0, mtd->size);
+	if (is_locked > 0) {
+		pr_err("mtd_writev: mtd_locked!\n");
 		return -EROFS;
 	}
+
 	if (!mtd->_writev)
 		return default_mtd_writev(mtd, vecs, count, to, retlen);
 	return mtd->_writev(mtd, vecs, count, to, retlen);

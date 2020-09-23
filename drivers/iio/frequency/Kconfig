@@ -153,4 +153,5 @@ config AXI_CLKMON
 	depends on COMMON_CLK
 	help
 	  Say yes here to build support for Xiphos' AXI Clock Monitoring IP Core.
+
 endmenu
