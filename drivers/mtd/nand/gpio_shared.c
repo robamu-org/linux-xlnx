@@ -53,9 +53,9 @@ struct gpiomtd {
 };
 
 struct gpiomtd_shared {
-	struct gpiomtd* 		gpiomtds[MAX_MTD_COUNT];
-	int 				dev_count;
-	struct gpio_nand_platdata 	plat;
+	struct gpiomtd*			gpiomtds[MAX_MTD_COUNT];
+	int				dev_count;
+	struct gpio_nand_platdata	plat;
 };
 
 static inline struct gpiomtd *gpio_nand_getpriv(struct mtd_info *mtd)
