@@ -243,7 +243,7 @@ static int gpio_nand_probe(struct platform_device *pdev)
 {
 	struct gpiomtd_shared *shared;
 	struct device_node *nand_np;
-	struct mtd_info* concatenated;
+	struct mtd_info *concatenated;
 	int ret = 0;
 
 	if (!pdev->dev.of_node && !dev_get_platdata(&pdev->dev))
