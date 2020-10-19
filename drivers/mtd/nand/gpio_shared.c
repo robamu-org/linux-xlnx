@@ -168,45 +168,6 @@ static int gpio_nand_remove(struct platform_device *pdev)
 	return 0;
 }
 
-static void __iomem *gpio_nand_get_reg(struct device *dev, struct device_node *pp, int *offset, int *size)
-{
-	const __be32 *reg;
-	void __iomem *dest_ptr;
-	int len;
-	int a_cells, s_cells;
-
-	reg = of_get_property(pp, "reg", &len);
-	if (!reg) {
-		dev_dbg(dev, "device %s missing reg property.\n", pp->name);
-		return IOMEM_ERR_PTR(-EBUSY);
-	}
-
-	a_cells = of_n_addr_cells(pp);
-	s_cells = of_n_size_cells(pp);
-	if (len / 4 != a_cells + s_cells) {
-		dev_err(dev, "error parsing reg property.\n");
-		return IOMEM_ERR_PTR(-EBUSY);
-	}
-
-	*offset = of_read_number(reg, a_cells);
-	*size = of_read_number(reg + a_cells, s_cells);
-
-	dev_info(dev, "using address 0x%x: 0x%x\n", *offset, *size);
-	if (!devm_request_mem_region(dev, *offset, *size, dev_name(dev))) {
-		dev_err(dev, "can't request region\n");
-		return IOMEM_ERR_PTR(-EBUSY);
-	}
-
-	dest_ptr = devm_ioremap(dev, *offset, *size);
-	if (!dest_ptr) {
-		dev_err(dev, "ioremap failed\n");
-		dest_ptr = IOMEM_ERR_PTR(-ENOMEM);
-	}
-
-	return dest_ptr;
-}
-
-
 static int
 gpio_nand_probe_device(struct platform_device* pdev,
 		       struct device_node *nand_np,
@@ -214,6 +175,7 @@ gpio_nand_probe_device(struct platform_device* pdev,
 {
 	struct nand_chip *chip;
 	struct mtd_info *mtd;
+	struct resource res;
 	int ret = 0;
 
 	chip = &gpiomtd->nand_chip;
@@ -221,7 +183,13 @@ gpio_nand_probe_device(struct platform_device* pdev,
 	// Specific GPIOs
 	gpiomtd->plat.gpio_nce = of_get_gpio(nand_np, 0);
 
-	chip->IO_ADDR_R = gpio_nand_get_reg(&pdev->dev, nand_np, &gpiomtd->offset, &gpiomtd->size);
+	ret = of_address_to_resource(nand_np, 0, &res);
+	if (ret) {
+		dev_err(&pdev->dev, "unable to resolve memory region %d\n", ret);
+		return ret;
+	}
+
+	chip->IO_ADDR_R = devm_ioremap_resource(&pdev->dev, &res);
 	if (IS_ERR(chip->IO_ADDR_R))
 		return PTR_ERR(chip->IO_ADDR_R);
 
