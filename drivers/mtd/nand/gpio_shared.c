@@ -213,8 +213,6 @@ gpio_nand_probe_device(struct platform_device* pdev,
 	mtd			= nand_to_mtd(chip);
 	mtd->dev.parent		= &pdev->dev;
 
-	platform_set_drvdata(pdev, gpiomtd);
-
 	ret = nand_scan(mtd, 1);
 	if (ret)
 		goto err_wp;
