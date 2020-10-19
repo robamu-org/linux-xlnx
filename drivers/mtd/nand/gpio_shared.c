@@ -177,24 +177,21 @@ static void __iomem *gpio_nand_get_reg(struct device *dev, struct device_node *p
 
 	reg = of_get_property(pp, "reg", &len);
 	if (!reg) {
-		pr_debug("%s: device %s missing reg property.\n",
-			 pp->name, pp->name);
+		dev_dbg(dev, "device %s missing reg property.\n", pp->name);
 		return IOMEM_ERR_PTR(-EBUSY);
 	}
 
 	a_cells = of_n_addr_cells(pp);
 	s_cells = of_n_size_cells(pp);
 	if (len / 4 != a_cells + s_cells) {
-		pr_debug("%s: ofpart partition %s error parsing reg property.\n",
-			 pp->name, pp->name);
+		dev_err(dev, "error parsing reg property.\n");
 		return IOMEM_ERR_PTR(-EBUSY);
 	}
 
 	*offset = of_read_number(reg, a_cells);
 	*size = of_read_number(reg + a_cells, s_cells);
 
-	pr_info("%s: using address 0x%x:0x%x\n", pp->name, *offset, *size);
-
+	dev_info(dev, "using address 0x%x: 0x%x\n", *offset, *size);
 	if (!devm_request_mem_region(dev, *offset, *size, dev_name(dev))) {
 		dev_err(dev, "can't request region\n");
 		return IOMEM_ERR_PTR(-EBUSY);
@@ -365,7 +362,7 @@ static int gpio_nand_probe(struct platform_device *pdev)
 						shared->plat.num_parts);
 
 		if (ret) {
-			pr_info("cannot register concat mtd device\n");
+			dev_info(&pdev->dev, "cannot register concat mtd device\n");
 			return ret;
 		}
 	}
