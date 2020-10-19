@@ -43,8 +43,6 @@
 
 #define	MAX_MTD_COUNT	16
 
-struct mtd_info* subdevs[MAX_MTD_COUNT];
-
 struct gpiomtd {
 	struct nand_chip		nand_chip;
 	struct gpio_nand_platdata	plat;
@@ -54,6 +52,7 @@ struct gpiomtd {
 
 struct gpiomtd_shared {
 	struct gpiomtd*			gpiomtds[MAX_MTD_COUNT];
+	struct mtd_info*		subdevs[MAX_MTD_COUNT];
 	int				dev_count;
 	struct gpio_nand_platdata	plat;
 };
@@ -305,7 +304,7 @@ static int gpio_nand_probe(struct platform_device *pdev)
 		}
 
 		shared->gpiomtds[shared->dev_count] = gpiomtd;
-		subdevs[shared->dev_count] = nand_to_mtd(&gpiomtd->nand_chip);
+		shared->subdevs[shared->dev_count] = nand_to_mtd(&gpiomtd->nand_chip);
 		shared->dev_count += 1;
 
 		of_node_put(nand_np);
@@ -319,7 +318,7 @@ static int gpio_nand_probe(struct platform_device *pdev)
 	if (shared->plat.concat) {
 		dev_info(&pdev->dev, "Concatenating all %d devices\n", shared->dev_count);
 		concatenated = mtd_concat_create(
-			subdevs,                 /* subdevices to concatenate */
+			shared->subdevs,         /* subdevices to concatenate */
 			shared->dev_count,       /* number of subdevices      */
 			"backup-nand");          /* name for the new device   */
 
