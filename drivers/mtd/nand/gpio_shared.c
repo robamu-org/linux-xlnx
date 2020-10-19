@@ -220,18 +220,7 @@ gpio_nand_probe_device(struct platform_device* pdev,
 		gpiomtd->plat.adjust_parts(&gpiomtd->plat,
 					   mtd->size);
 
-	ret = mtd_device_register(mtd,
-				  gpiomtd->plat.parts,
-				  gpiomtd->plat.num_parts);
-
-	if (ret != 0)
-		goto register_fail;
-
 	return ret;
-
-register_fail:
-	nand_release(mtd);
-
 err_wp:
 	if (gpio_is_valid(gpiomtd->plat.gpio_nwp))
 		gpio_set_value(gpiomtd->plat.gpio_nwp, 0);
@@ -245,6 +234,7 @@ static int gpio_nand_probe(struct platform_device *pdev)
 	struct device_node *nand_np;
 	struct mtd_info *concatenated;
 	int ret = 0;
+	int i;
 
 	if (!pdev->dev.of_node && !dev_get_platdata(&pdev->dev))
 		return -EINVAL;
@@ -329,6 +319,15 @@ static int gpio_nand_probe(struct platform_device *pdev)
 		if (ret) {
 			dev_info(&pdev->dev, "cannot register concat mtd device\n");
 			return ret;
+		}
+	} else {
+		for (i = 0; i < shared->dev_count; i++) {
+			ret = mtd_device_register(shared->subdevs[i],
+						  shared->gpiomtds[i]->plat.parts,
+						  shared->gpiomtds[i]->plat.num_parts);
+			if (ret)
+				dev_err(&pdev->dev, "unable to register %s (%d)\n",
+					shared->subdevs[i]->name, ret);
 		}
 	}
 
