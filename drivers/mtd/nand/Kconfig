@@ -70,6 +70,7 @@ config MTD_NAND_GPIO
 
 config MTD_NAND_GPIO_SHARED
 	tristate "Shared GPIO assisted NAND Flash driver"
+	select MTD_NAND_ECC_BCH
 	depends on GPIOLIB || COMPILE_TEST
 	help
 	  This enables a NAND flash driver where control signals are

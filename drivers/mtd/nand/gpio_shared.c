@@ -43,10 +43,7 @@
 
 #define	MAX_MTD_COUNT	16
 
-struct mtd_info* subdevs[MAX_MTD_COUNT];
-
 struct gpiomtd {
-	struct mtd_info			mtd_info;
 	struct nand_chip		nand_chip;
 	struct gpio_nand_platdata	plat;
 	int				offset;
@@ -54,13 +51,16 @@ struct gpiomtd {
 };
 
 struct gpiomtd_shared {
-	struct gpiomtd* 		gpiomtds[MAX_MTD_COUNT];
-	int 				dev_count;
-	struct gpio_nand_platdata 	plat;
+	struct gpiomtd*			gpiomtds[MAX_MTD_COUNT];
+	struct mtd_info*		subdevs[MAX_MTD_COUNT];
+	int				dev_count;
+	struct gpio_nand_platdata	plat;
 };
 
-#define gpio_nand_getpriv(x) container_of(x, struct gpiomtd, mtd_info)
-
+static inline struct gpiomtd *gpio_nand_getpriv(struct mtd_info *mtd)
+{
+	return container_of(mtd_to_nand(mtd), struct gpiomtd, nand_chip);
+}
 
 static void gpio_nand_cmd_ctrl(struct mtd_info *mtd, int cmd, unsigned int ctrl)
 {
@@ -156,7 +156,7 @@ static int gpio_nand_remove(struct platform_device *pdev)
 	struct gpiomtd_shared *shared = platform_get_drvdata(pdev);
 
 	for (i = 0; i < shared->dev_count; i++) {
-		nand_release(&shared->gpiomtds[i]->mtd_info);
+		nand_release(nand_to_mtd(&shared->gpiomtds[i]->nand_chip));
 		if (gpio_is_valid(shared->gpiomtds[i]->plat.gpio_nce))
 			gpio_set_value(shared->gpiomtds[i]->plat.gpio_nce, 1);
 	}
@@ -167,54 +167,14 @@ static int gpio_nand_remove(struct platform_device *pdev)
 	return 0;
 }
 
-static void __iomem *gpio_nand_get_reg(struct device *dev, struct device_node *pp, int *offset, int *size)
-{
-	const __be32 *reg;
-	void __iomem *dest_ptr;
-	int len;
-	int a_cells, s_cells;
-
-	reg = of_get_property(pp, "reg", &len);
-	if (!reg) {
-		pr_debug("%s: device %s missing reg property.\n",
-			 pp->name, pp->name);
-		return IOMEM_ERR_PTR(-EBUSY);
-	}
-
-	a_cells = of_n_addr_cells(pp);
-	s_cells = of_n_size_cells(pp);
-	if (len / 4 != a_cells + s_cells) {
-		pr_debug("%s: ofpart partition %s error parsing reg property.\n",
-			 pp->name, pp->name);
-		return IOMEM_ERR_PTR(-EBUSY);
-	}
-
-	*offset = of_read_number(reg, a_cells);
-	*size = of_read_number(reg + a_cells, s_cells);
-
-	pr_info("%s: using address 0x%x:0x%x\n", pp->name, *offset, *size);
-
-	if (!devm_request_mem_region(dev, *offset, *size, dev_name(dev))) {
-		dev_err(dev, "can't request region\n");
-		return IOMEM_ERR_PTR(-EBUSY);
-	}
-
-	dest_ptr = devm_ioremap(dev, *offset, *size);
-	if (!dest_ptr) {
-		dev_err(dev, "ioremap failed\n");
-		dest_ptr = IOMEM_ERR_PTR(-ENOMEM);
-	}
-
-	return dest_ptr;
-}
-
-
 static int
 gpio_nand_probe_device(struct platform_device* pdev,
 		       struct device_node *nand_np,
 		       struct gpiomtd *gpiomtd)
 {
 	struct nand_chip *chip;
+	struct mtd_info *mtd;
+	struct resource res;
 	int ret = 0;
 
 	chip = &gpiomtd->nand_chip;
@@ -222,7 +182,13 @@ gpio_nand_probe_device(struct platform_device* pdev,
 	// Specific GPIOs
 	gpiomtd->plat.gpio_nce = of_get_gpio(nand_np, 0);
 
-	chip->IO_ADDR_R = gpio_nand_get_reg(&pdev->dev, nand_np, &gpiomtd->offset, &gpiomtd->size);
+	ret = of_address_to_resource(nand_np, 0, &res);
+	if (ret) {
+		dev_err(&pdev->dev, "unable to resolve memory region %d\n", ret);
+		return ret;
+	}
+
+	chip->IO_ADDR_R = devm_ioremap_resource(&pdev->dev, &res);
 	if (IS_ERR(chip->IO_ADDR_R))
 		return PTR_ERR(chip->IO_ADDR_R);
 
@@ -234,37 +200,27 @@ gpio_nand_probe_device(struct platform_device* pdev,
 		gpio_direction_output(gpiomtd->plat.gpio_nce, 1);
 	}
 
+	nand_set_flash_node(chip, nand_np);
 	chip->IO_ADDR_W		= chip->IO_ADDR_R;
 	chip->ecc.mode		= NAND_ECC_SOFT;
+	chip->ecc.algo		= NAND_ECC_BCH;
 	chip->options		= gpiomtd->plat.options;
 	chip->chip_delay	= gpiomtd->plat.chip_delay;
 	chip->cmd_ctrl		= gpio_nand_cmd_ctrl;
 	chip->dev_ready		= gpio_nand_devready;
 
-	gpiomtd->mtd_info.priv	= chip;
-	gpiomtd->mtd_info.dev.parent = &pdev->dev;
+	mtd			= nand_to_mtd(chip);
+	mtd->dev.parent		= &pdev->dev;
 
-	if (nand_scan(&gpiomtd->mtd_info, 1)) {
-		ret = -ENXIO;
+	ret = nand_scan(mtd, 1);
+	if (ret)
 		goto err_wp;
-	}
 
 	if (gpiomtd->plat.adjust_parts)
 		gpiomtd->plat.adjust_parts(&gpiomtd->plat,
-					   gpiomtd->mtd_info.size);
-
-	ret = mtd_device_register(&gpiomtd->mtd_info,
-					gpiomtd->plat.parts,
-					gpiomtd->plat.num_parts);
-
-	if (ret != 0)
-		goto register_fail;
+					   mtd->size);
 
 	return ret;
-
-register_fail:
-	nand_release(&gpiomtd->mtd_info);
-
 err_wp:
 	if (gpio_is_valid(gpiomtd->plat.gpio_nwp))
 		gpio_set_value(gpiomtd->plat.gpio_nwp, 0);
@@ -276,8 +232,9 @@ static int gpio_nand_probe(struct platform_device *pdev)
 {
 	struct gpiomtd_shared *shared;
 	struct device_node *nand_np;
-	struct mtd_info* concatenated;
+	struct mtd_info *concatenated;
 	int ret = 0;
+	int i;
 
 	if (!pdev->dev.of_node && !dev_get_platdata(&pdev->dev))
 		return -EINVAL;
@@ -337,16 +294,21 @@ static int gpio_nand_probe(struct platform_device *pdev)
 		}
 
 		shared->gpiomtds[shared->dev_count] = gpiomtd;
-		subdevs[shared->dev_count] = &gpiomtd->mtd_info;
+		shared->subdevs[shared->dev_count] = nand_to_mtd(&gpiomtd->nand_chip);
 		shared->dev_count += 1;
 
 		of_node_put(nand_np);
 	}
 
+	if (!shared->dev_count) {
+		dev_warn(&pdev->dev, "No valid NAND devices found\n");
+		return -ENODEV;
+	}
+
 	if (shared->plat.concat) {
 		dev_info(&pdev->dev, "Concatenating all %d devices\n", shared->dev_count);
 		concatenated = mtd_concat_create(
-			subdevs,                 /* subdevices to concatenate */
+			shared->subdevs,         /* subdevices to concatenate */
 			shared->dev_count,       /* number of subdevices      */
 			"backup-nand");          /* name for the new device   */
 
@@ -355,8 +317,17 @@ static int gpio_nand_probe(struct platform_device *pdev)
 						shared->plat.num_parts);
 
 		if (ret) {
-			pr_info("cannot register concat mtd device\n");
+			dev_info(&pdev->dev, "cannot register concat mtd device\n");
 			return ret;
+		}
+	} else {
+		for (i = 0; i < shared->dev_count; i++) {
+			ret = mtd_device_register(shared->subdevs[i],
+						  shared->gpiomtds[i]->plat.parts,
+						  shared->gpiomtds[i]->plat.num_parts);
+			if (ret)
+				dev_err(&pdev->dev, "unable to register %s (%d)\n",
+					shared->subdevs[i]->name, ret);
 		}
 	}
 
