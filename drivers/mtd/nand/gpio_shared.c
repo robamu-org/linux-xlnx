@@ -261,10 +261,20 @@ static int gpio_nand_probe(struct platform_device *pdev)
 		gpio_direction_input(shared->plat.gpio_rdy);
 	}
 
+	if (!gpio_is_valid(shared->plat.gpio_ale)) {
+		dev_err(&pdev->dev, "ALE GPIO is invalid !");
+		return -EINVAL;
+	}
+
 	ret = devm_gpio_request(&pdev->dev, shared->plat.gpio_ale, "NAND ALE");
 	if (ret)
 		return ret;
 	gpio_direction_output(shared->plat.gpio_ale, 0);
+
+	if (!gpio_is_valid(shared->plat.gpio_cle)) {
+		dev_err(&pdev->dev, "CLE GPIO is invalid !");
+		return -EINVAL;
+	}
 
 	ret = devm_gpio_request(&pdev->dev, shared->plat.gpio_cle, "NAND CLE");
 	if (ret)
