@@ -124,6 +124,8 @@ static int read_sr(struct spi_nor *nor)
 		}
 	}
 
+	/* Xiphos: This bit should never be set, clear it using pa3tool --flash-clear-hw-prot */
+	BUG_ON(val[0] & SR_SRWD);
 	return val[0];
 }
 
@@ -180,6 +182,8 @@ static int read_cr(struct spi_nor *nor)
  */
 static inline int write_sr(struct spi_nor *nor, u8 val)
 {
+	/* Xiphos: This bit should never be set! */
+	BUG_ON(val & SR_SRWD);
 	nor->cmd_buf[0] = val;
 	return nor->write_reg(nor, SPINOR_OP_WRSR, nor->cmd_buf, 1);
 }

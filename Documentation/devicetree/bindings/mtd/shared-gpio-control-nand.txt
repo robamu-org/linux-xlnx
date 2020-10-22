@@ -8,6 +8,8 @@ Required properties:
 - compatible : "gpio-control-nand-shared"
 - gpios : Specifies the shared GPIO pins to control the NAND devices.
   The order of GPIO references is:  ALE, CLE, RDY and an optional nWP.
+- ranges: allows valid 1:1 translation between child's address space and
+          parent's address space
 
 Optional properties:
 - bank-width : Width (in bytes) of the device.  If not present, the width
@@ -39,6 +41,7 @@ Examples:
 
 gpio-nand@1,0 {
 	compatible = "gpio-control-nand-shared";
+	ranges;                 /* 1:1 translation */
 	gpios = <&banka 1 0>,	/* RDY */
 		<&banka 3 0>, 	/* ALE */
 		<&banka 4 0>, 	/* CLE */
