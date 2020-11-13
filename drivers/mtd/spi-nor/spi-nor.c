@@ -3083,6 +3083,7 @@ int spi_nor_scan(struct spi_nor *nor, const char *name,
 	mtd->_erase = spi_nor_erase;
 	mtd->_read = spi_nor_read;
 #ifdef CONFIG_OF
+	of_node_get(np);
 	np_spi = of_get_next_parent(np);
 	nor->sector_size = info->sector_size;
 	nor->n_sectors = info->n_sectors;
@@ -3231,6 +3232,7 @@ int spi_nor_scan(struct spi_nor *nor, const char *name,
 		nor->addr_width = info->addr_width;
 	} else if (mtd->size > 0x1000000) {
 #ifdef CONFIG_OF
+		of_node_get(np);
 		np_spi = of_get_next_parent(np);
 		if (of_property_match_string(np_spi, "compatible",
 					     "xlnx,zynq-qspi-1.0") >= 0) {
