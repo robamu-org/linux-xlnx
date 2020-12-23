@@ -398,6 +398,7 @@ static ssize_t xsc_logic_wdt_timeout_store(struct device *dev,
 	uint32_t new_value;
 	if (1 == sscanf(buf, "%u",&new_value)) {
 		xsc_logic_wdt_set_reg(xsc_logic_wdt, REG_COMPRST,new_value);
+		xsc_logic_wdt_set_reg(xsc_logic_wdt, REG_COMPINT,new_value);
 		return count;
 	} else
 		return -EINVAL;
@@ -418,6 +419,7 @@ static ssize_t xsc_logic_wdt_pretimeout_store(struct device *dev,
 	struct xsc_logic_wdt_dev *xsc_logic_wdt = dev_get_drvdata(dev);
 	uint32_t new_value;
 	if (1 == sscanf(buf, "%u",&new_value)) {
+		xsc_logic_wdt_set_reg(xsc_logic_wdt, REG_COMPRST,new_value);
 		xsc_logic_wdt_set_reg(xsc_logic_wdt, REG_COMPINT,new_value);
 		return count;
 	} else
