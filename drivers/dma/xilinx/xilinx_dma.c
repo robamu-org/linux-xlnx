@@ -2156,8 +2156,7 @@ static int xilinx_dma_terminate_all(struct dma_chan *dchan)
 	u32 reg;
 	int err;
 
-	if (chan->cyclic)
-		xilinx_dma_chan_reset(chan);
+	xilinx_dma_chan_reset(chan);
 
 	err = chan->stop_transfer(chan);
 	if (err) {
