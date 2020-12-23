@@ -1385,6 +1385,9 @@ static void xilinx_dma_complete_descriptor(struct xilinx_dma_chan *chan)
 			dma_cookie_complete(&desc->async_tx);
 		list_add_tail(&desc->node, &chan->done_list);
 	}
+
+	// Stopping channel
+	xilinx_dma_stop_transfer(chan);
 }
 
 /**
