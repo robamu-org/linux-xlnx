@@ -409,7 +409,7 @@ static ssize_t xsc_logic_wdt_timeout_show(struct device *dev,
 						char * buf)
 {
 	struct xsc_logic_wdt_dev *xsc_logic_wdt = dev_get_drvdata(dev);
-	return sprintf(buf, "%d\n",xsc_logic_wdt_get_reg(xsc_logic_wdt,REG_COMPRST));
+	return sprintf(buf, "%u\n",xsc_logic_wdt_get_reg(xsc_logic_wdt,REG_COMPRST));
 }
 
 static ssize_t xsc_logic_wdt_pretimeout_store(struct device *dev,
@@ -431,7 +431,7 @@ static ssize_t xsc_logic_wdt_pretimeout_show(struct device *dev,
 						char * buf)
 {
 	struct xsc_logic_wdt_dev *xsc_logic_wdt = dev_get_drvdata(dev);
-	return sprintf(buf, "%d\n",xsc_logic_wdt_get_reg(xsc_logic_wdt,REG_COMPINT));
+	return sprintf(buf, "%u\n",xsc_logic_wdt_get_reg(xsc_logic_wdt,REG_COMPINT));
 }
 
 static ssize_t xsc_logic_wdt_counter_show(struct device *dev,
