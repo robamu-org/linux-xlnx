@@ -822,9 +822,9 @@ static void xilinx_dma_chan_desc_cleanup(struct xilinx_dma_chan *chan)
 		/* Run the link descriptor callback function */
 		dmaengine_desc_get_callback(&desc->async_tx, &cb);
 		if (dmaengine_desc_callback_valid(&cb)) {
-			spin_unlock_irqrestore(&chan->lock, flags);
+			//spin_unlock_irqrestore(&chan->lock, flags); //FIXME: Why is this unlocked ?
 			dmaengine_desc_callback_invoke(&cb, NULL);
-			spin_lock_irqsave(&chan->lock, flags);
+			//spin_lock_irqsave(&chan->lock, flags);
 		}
 
 		/* Run any dependencies, then free the descriptor */
@@ -1387,6 +1387,9 @@ static void xilinx_dma_complete_descriptor(struct xilinx_dma_chan *chan)
 			dma_cookie_complete(&desc->async_tx);
 		list_add_tail(&desc->node, &chan->done_list);
 	}
+
+	// Stopping channel
+	xilinx_dma_stop_transfer(chan);
 }
 
 /**
@@ -2155,8 +2158,7 @@ static int xilinx_dma_terminate_all(struct dma_chan *dchan)
 	u32 reg;
 	int err;
 
-	if (chan->cyclic)
-		xilinx_dma_chan_reset(chan);
+	xilinx_dma_chan_reset(chan);
 
 	err = chan->stop_transfer(chan);
 	if (err) {
