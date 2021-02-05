@@ -289,7 +289,6 @@ static int gpio_nand_probe(struct platform_device *pdev)
 		if (ret) {
 			dev_warn(&pdev->dev, "Cannot initialize nand device %s, ignoring\n", nand_np->full_name);
 			of_node_put(nand_np);
-			kfree(gpiomtd);
 			continue;
 		}
 
