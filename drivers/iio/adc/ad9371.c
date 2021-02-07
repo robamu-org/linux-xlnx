@@ -815,8 +815,6 @@ static int ad9371_setup(struct ad9371_rf_phy *phy)
 		ret = MYKONOS_setRfPllFrequency(mykDevice, RX_PLL,
 						mykDevice->rx->rxPllLoFrequency_Hz);
 		if (ret != MYKONOS_ERR_OK) {
-			dev_err(&phy->spi->dev, "%s (%d)",
-				getMykonosErrorMessage(ret), ret);
 			ret = -EFAULT;
 			goto out;
 		}
@@ -826,8 +824,6 @@ static int ad9371_setup(struct ad9371_rf_phy *phy)
 		ret = MYKONOS_setRfPllFrequency(mykDevice, TX_PLL,
 						mykDevice->tx->txPllLoFrequency_Hz);
 		if (ret != MYKONOS_ERR_OK) {
-			dev_err(&phy->spi->dev, "%s (%d)",
-				getMykonosErrorMessage(ret), ret);
 			ret = -EFAULT;
 			goto out;
 		}
@@ -837,8 +833,6 @@ static int ad9371_setup(struct ad9371_rf_phy *phy)
 		ret = MYKONOS_setRfPllFrequency(mykDevice, SNIFFER_PLL,
 						mykDevice->obsRx->snifferPllLoFrequency_Hz);
 		if (ret != MYKONOS_ERR_OK) {
-			dev_err(&phy->spi->dev, "%s (%d)",
-				getMykonosErrorMessage(ret), ret);
 			ret = -EFAULT;
 			goto out;
 		}
