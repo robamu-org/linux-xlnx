@@ -750,7 +750,7 @@ static inline u8 swap_bits(u8 n, int p1, int p2)
 
 static inline uint64_t stm_sr_to_len(struct spi_nor *nor, u8 sr)
 {
-	u8 mask = SR_BP3 | SR_BP2 | SR_BP1 | SR_BP0;
+	u8 mask = nor->sr_bp3_mask | SR_BP2 | SR_BP1 | SR_BP0;
 	int shift = ffs(mask) - 1;
 	int bits;
 
@@ -758,7 +758,10 @@ static inline uint64_t stm_sr_to_len(struct spi_nor *nor, u8 sr)
 		return 0;
 	}
 
-	bits = swap_bits(sr & mask, 6, 5) >> shift;
+	if (nor->jedec_id == SNOR_MFR_MICRON)
+		bits = swap_bits(sr & mask, 6, 5) >> shift;
+	else
+		bits = (sr & mask) >> shift;
 
 	// Top out to the number of sectors.. n_sectors = 2048 => bits = 11
 	bits = min(bits, ilog2(nor->n_sectors));
@@ -820,6 +823,19 @@ static int stm_is_unlocked_sr(struct spi_nor *nor, loff_t ofs, uint64_t len,
 	return stm_check_lock_status_sr(nor, ofs, len, sr, false);
 }
 
+static u8 lock_len_to_sr(struct spi_nor *nor, loff_t lock_len)
+{
+	u8 mask = nor->sr_bp3_mask | SR_BP2 | SR_BP1 | SR_BP0;
+	u8 shift = ffs(mask) - 1;
+
+	/* Only swap bits with the MICRON chips */
+	if (nor->jedec_id == SNOR_MFR_MICRON)
+		return swap_bits(ilog2(lock_len >> (ilog2(nor->sector_size) - 1))
+				<< shift, 6, 5);
+	else
+		return ilog2(lock_len >> (ilog2(nor->sector_size) - 1)) << shift;
+}
+
 /*
  * Lock a region of the flash. Compatible with ST Micro and similar flash.
  * Supports the block protection bits BP{0,1,2} in the status register
@@ -856,8 +872,8 @@ static int stm_lock(struct spi_nor *nor, loff_t ofs, uint64_t len)
 {
 	struct mtd_info *mtd = &nor->mtd;
 	int status_old, status_new;
-	u8 mask = SR_BP3 | SR_BP2 | SR_BP1 | SR_BP0;
-	u8 shift = ffs(mask) - 1, val;
+	u8 mask = nor->sr_bp3_mask | SR_BP2 | SR_BP1 | SR_BP0;
+	u8 val;
 	loff_t lock_len = 0;
 	bool can_be_top = true, can_be_bottom = nor->flags & SNOR_F_HAS_SR_TB;
 	bool use_top;
@@ -895,7 +911,7 @@ static int stm_lock(struct spi_nor *nor, loff_t ofs, uint64_t len)
 	use_top = can_be_top;
 
 	/* lock_len: length of region that should end up locked */
-	if (status_old & SR_TB) {
+	if (nor->flags & SNOR_F_HAS_SR_TB && status_old & SR_TB) {
 		loff_t lock_offs_old = 0;
 		uint64_t lock_len_old = 0;
 		stm_get_locked_range(nor, status_old, &lock_offs_old, &lock_len_old);
@@ -912,8 +928,7 @@ static int stm_lock(struct spi_nor *nor, loff_t ofs, uint64_t len)
 			lock_len = ofs + len;
 
 
-	val = swap_bits(ilog2(lock_len >> (ilog2(nor->sector_size) - 1))
-			<< shift, 6, 5);
+	val = lock_len_to_sr(nor, lock_len);
 	if (val & ~mask) {
 		dev_err(nor->dev, "stm_lock: val & ~mask\n");
 		return -EINVAL;
@@ -924,10 +939,17 @@ static int stm_lock(struct spi_nor *nor, loff_t ofs, uint64_t len)
 		return -EINVAL;
 	}
 
-	status_new = (status_old & ~mask & ~SR_TB) | val;
+	/* Change the SR_TB only if the chip HAS_SR_TB */
+	if (nor->flags & SNOR_F_HAS_SR_TB) {
+		status_new = (status_old & ~mask & ~SR_TB) | val;
 
-	if (!use_top)
-		status_new |= SR_TB;
+		if (!use_top)
+			status_new |= SR_TB;
+	} else {
+		status_new = (status_old & ~mask) | val;
+	}
+
+
 
 	/* Don't bother if they're the same */
 	if (status_new == status_old)
@@ -955,8 +977,8 @@ static int stm_unlock(struct spi_nor *nor, loff_t ofs, uint64_t len)
 {
 	struct mtd_info *mtd = &nor->mtd;
 	int status_old, status_new;
-	u8 mask = SR_BP3 | SR_BP2 | SR_BP1 | SR_BP0;
-	u8 shift = ffs(mask) - 1, val;
+	u8 mask = nor->sr_bp3_mask | SR_BP2 | SR_BP1 | SR_BP0;
+	u8 val;
 	loff_t lock_len;
 	bool can_be_top = true, can_be_bottom = nor->flags & SNOR_F_HAS_SR_TB;
 	bool use_top;
@@ -995,7 +1017,7 @@ static int stm_unlock(struct spi_nor *nor, loff_t ofs, uint64_t len)
 	use_top = can_be_top;
 
 	/* lock_len: length of region that should remain locked */
-	if (status_old & SR_TB)
+	if (nor->flags & SNOR_F_HAS_SR_TB && (status_old & SR_TB))
 		if (use_top)
 			lock_len = ofs;
 		else
@@ -1009,17 +1031,20 @@ static int stm_unlock(struct spi_nor *nor, loff_t ofs, uint64_t len)
 	if (lock_len == 0) {
 		val = 0; /* fully unlocked */
 	} else {
-		val = swap_bits(ilog2(lock_len >> (ilog2(nor->sector_size) - 1))
-				<< shift, 6, 5);
+		val = lock_len_to_sr(nor, lock_len);
 
 		if (val & ~mask)
 			return -EINVAL;
 	}
 
-	status_new = (status_old & ~mask & ~SR_TB) | val;
+	if (nor->flags & SNOR_F_HAS_SR_TB) {
+		status_new = (status_old & ~mask & ~SR_TB) | val;
 
-	if (!use_top)
-		status_new |= SR_TB;
+		if (!use_top)
+			status_new |= SR_TB;
+	} else {
+		status_new = (status_old & ~mask) | val;
+	}
 
 	/* Don't bother if they're the same */
 	if (status_new == status_old)
@@ -3083,6 +3108,7 @@ int spi_nor_scan(struct spi_nor *nor, const char *name,
 	mtd->_erase = spi_nor_erase;
 	mtd->_read = spi_nor_read;
 #ifdef CONFIG_OF
+	of_node_get(np);
 	np_spi = of_get_next_parent(np);
 	nor->sector_size = info->sector_size;
 	nor->n_sectors = info->n_sectors;
@@ -3156,6 +3182,23 @@ int spi_nor_scan(struct spi_nor *nor, const char *name,
 		nor->flash_lock = stm_lock;
 		nor->flash_unlock = stm_unlock;
 		nor->flash_is_locked = stm_is_locked;
+		nor->sr_bp3_mask = MICRON_SR_BP3;
+	}
+
+	if (JEDEC_MFR(info) == SNOR_MFR_ISSI &&
+			info->flags & SPI_NOR_HAS_LOCK) {
+		/*
+		 * ISSI Devices have support for Top/Bottom but not through the
+		 * SR register.
+		 * Activating SPI_NOR_HAS_TB on an ISSI NOR chip will probably
+		 * change the quad config and prevent the FSBL from reading the
+		 * NOR.
+		 * You have been warned.
+		 * To be revisited on a more recent kernel or mainline kernel.
+		 */
+		WARN_ON(info->flags & SPI_NOR_HAS_TB);
+
+		nor->sr_bp3_mask = ISSI_SR_BP3;
 	}
 
 	if (nor->flash_lock && nor->flash_unlock && nor->flash_is_locked) {
@@ -3231,6 +3274,7 @@ int spi_nor_scan(struct spi_nor *nor, const char *name,
 		nor->addr_width = info->addr_width;
 	} else if (mtd->size > 0x1000000) {
 #ifdef CONFIG_OF
+		of_node_get(np);
 		np_spi = of_get_next_parent(np);
 		if (of_property_match_string(np_spi, "compatible",
 					     "xlnx,zynq-qspi-1.0") >= 0) {

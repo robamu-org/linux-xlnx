@@ -128,7 +128,8 @@
 
 #define SR_TB			BIT(5)	/* Top/Bottom protect */
 #define SR_SRWD			BIT(7)	/* SR write protect */
-#define SR_BP3			0x40
+#define MICRON_SR_BP3		BIT(6)
+#define ISSI_SR_BP3		BIT(5)
 /* Bit to determine whether protection starts from top or bottom */
 #define SR_BP_TB		0x20
 #define BP_BITS_FROM_SR(sr)	(((sr) & SR_BP_BIT_MASK) >> SR_BP_BIT_OFFSET)
@@ -315,6 +316,7 @@ struct spi_nor {
 	u32			flags;
 	u8			cmd_buf[SPI_NOR_MAX_CMD_SIZE];
 	bool			is_lock;
+	uint8_t			sr_bp3_mask;
 
 	int (*prepare)(struct spi_nor *nor, enum spi_nor_ops ops);
 	void (*unprepare)(struct spi_nor *nor, enum spi_nor_ops ops);
