@@ -204,6 +204,7 @@ struct ad9371_rf_phy {
 	struct iio_dev 		*indio_dev;
 
 	struct gpio_desc	*reset_gpio;
+	struct gpio_desc	*test_gpio;
 	struct gpio_desc	*sysref_req_gpio;
 	struct gain_table_info  gt_info[LOOPBACK_GT + 1];
 
