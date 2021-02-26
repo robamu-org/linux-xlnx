@@ -186,7 +186,7 @@ struct adv7393_std_info {
 #define ADV7393_GAIN_DEF	(0)
 
 /* Configuration for square pixel mode */
-#define ADV7393_POWER_MODE_REG_SQUARE_PIXEL	(0x1C)
+#define ADV7393_POWER_MODE_REG_SQUARE_PIXEL	(0x12)
 #define ADV7393_INPUT_MODE_REG_SQUARE_PIXEL	(0x00)
 #define ADV7393_MODE_REG0_SQUARE_PIXEL		(0x60)
 
