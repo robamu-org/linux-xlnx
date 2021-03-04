@@ -1,5 +1,5 @@
 /**
- * Watchdog driver for Xilinx XPS Watchdog logic.
+ * Watchdog driver for the Xiphos ProAsic3 Watchdog logic
  *
  * Copyright (C) 2012 - 2021 Xiphos Systems Corp.
  * All rights reserved.
@@ -37,7 +37,7 @@
 #endif
 
 #define DRIVER_NAME "xsc_wdt"
-#define DRIVER_DESCRIPTION "Xiphos Q6S/Q7S Watchdog V1"
+#define DRIVER_DESCRIPTION "Xiphos ProAsic3 Watchdog"
 
 #define REG_ENABLE1 0
 #define XSC_LOGIC_WDT_ENABLE1_MAGIC 0xb45efa83
@@ -740,7 +740,7 @@ module_init(xsc_logic_wdt_init);
 module_exit(xsc_logic_wdt_exit);
 
 MODULE_AUTHOR("Xiphos Systems Corporation <jpl@xiphos.ca>");
-MODULE_DESCRIPTION("Watchdog driver for Xilinx XPS Watchdog Timer");
+MODULE_DESCRIPTION(DRIVER_DESCRIPTION);
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("platform:" DRIVER_NAME);
 
