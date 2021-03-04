@@ -475,12 +475,14 @@ static struct attribute_group xsc_logic_wdt_dev_attr_group = {
 
 static int xsc_logic_wdt_probe_or_remove(bool probe, struct platform_device *ofdev)
 {
+	u32 val;
         int rc = 0;
         struct resource r_irq_struct;
         struct resource r_mem_struct;
         struct resource *r_irq = &r_irq_struct;
         struct resource *r_mem = &r_mem_struct;
 	struct xsc_logic_wdt_dev *xsc_logic_wdt;
+	const int INIT_TIMEOUT_SECONDS = 60;
 	const __be32 *of_prop_val;
 
 	if (!probe) {
@@ -551,8 +553,6 @@ static int xsc_logic_wdt_probe_or_remove(bool probe, struct platform_device *ofd
 	if (of_prop_val)
 		xsc_logic_wdt->counter_divider = be32_to_cpup(of_prop_val);
 
-	const int INIT_TIMEOUT_SECONDS = 60;
-	uint32_t val;
 	/* 6.5 Initialize the logic to a sane timeout value */
 	xsc_logic_wdt->total_timeout = xsc_logic_wdt_calc_counts(xsc_logic_wdt,
 			INIT_TIMEOUT_SECONDS);
