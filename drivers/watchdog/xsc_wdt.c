@@ -231,10 +231,10 @@ static long xsc_wdt_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 		xsc_wdt->total_timeout = xsc_wdt_calc_counts(xsc_wdt, val);
 		val = (int)(xsc_wdt->total_timeout >> xsc_wdt->counter_divider);
 		// set both registers to be the same
-		dev_info(xsc_wdt->dev, "setting timeout to %d, "
-			 "counter_divider=%d, hz=%d\n", val,
-			 xsc_wdt->counter_divider,
-			 xsc_wdt_get_hz(xsc_wdt));
+		dev_info(xsc_wdt->dev, "setting timeout to %d\n", val);
+		dev_dbg(xsc_wdt->dev, "counter_divider=%d, hz=%d\n",
+			xsc_wdt->counter_divider,
+			xsc_wdt_get_hz(xsc_wdt));
 		xsc_wdt_set_reg(xsc_wdt, REG_COMPINT, val);
 		xsc_wdt_set_reg(xsc_wdt, REG_COMPRST, val);
 		if (was_active) {
@@ -542,8 +542,8 @@ static int xsc_wdt_probe_or_remove(bool probe, struct platform_device *ofdev)
 	}
 	xsc_wdt->base_address = r_mem->start;
 
-	dev_info(&ofdev->dev, "OF address: 0x%pa\n",
-			&xsc_wdt->base_address);
+	dev_dbg(&ofdev->dev, "OF address: 0x%pa\n",
+		&xsc_wdt->base_address);
 	/* 3. Obtain IRQ from device tree */
 	rc = of_irq_to_resource(ofdev->dev.of_node, 0, r_irq);
 	if (rc <= 0) {
@@ -552,7 +552,7 @@ static int xsc_wdt_probe_or_remove(bool probe, struct platform_device *ofdev)
 		goto fail_rirq;
 	}
 	xsc_wdt->irq = r_irq->start;
-	dev_info(&ofdev->dev, "OF IRQ: %d\n", xsc_wdt->irq);
+	dev_dbg(&ofdev->dev, "OF IRQ: %d\n", xsc_wdt->irq);
 
 	/* 4. Request memory region */
 	if (!request_mem_region(r_mem->start, r_mem->end - r_mem->start + 1,
@@ -563,7 +563,7 @@ static int xsc_wdt_probe_or_remove(bool probe, struct platform_device *ofdev)
 	}
 	/* 5. Remap memory region */
 	xsc_wdt->base = ioremap(xsc_wdt->base_address, 1024);
-	dev_info(&ofdev->dev, "remapped to %p\n", xsc_wdt->base);
+	dev_dbg(&ofdev->dev, "remapped to %p\n", xsc_wdt->base);
 	if (!xsc_wdt->base) {
 		dev_err(&ofdev->dev, "ioremap failed\n");
 		rc = -ENOMEM;
@@ -585,10 +585,10 @@ static int xsc_wdt_probe_or_remove(bool probe, struct platform_device *ofdev)
 	xsc_wdt->total_timeout = xsc_wdt_calc_counts(xsc_wdt, INIT_TIMEOUT_SECONDS);
 	val = (uint32_t) (xsc_wdt->total_timeout >> xsc_wdt->counter_divider);
 	// set both registers to be the same
-	dev_info(&ofdev->dev, "setting timeout to %d, "
-		 "counter_divider=%d, hz=%d\n", val,
-		 xsc_wdt->counter_divider,
-		 xsc_wdt_get_hz(xsc_wdt));
+	dev_info(&ofdev->dev, "setting timeout to %d\n", val);
+	dev_dbg(&ofdev->dev, "counter_divider=%d, hz=%d\n",
+		xsc_wdt->counter_divider,
+		xsc_wdt_get_hz(xsc_wdt));
 
 	xsc_wdt_set_reg(xsc_wdt, REG_COMPINT, val);
 	xsc_wdt_set_reg(xsc_wdt, REG_COMPRST, val);
