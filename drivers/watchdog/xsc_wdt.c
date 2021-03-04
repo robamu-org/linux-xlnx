@@ -79,7 +79,7 @@ static struct class *xsc_logic_wdt_class;
 static irqreturn_t xsc_logic_wdt_interrupt(int irq, void * dev_id)
 {
 
-	printk(KERN_ALERT DRIVER_NAME": Interrupt received\n");
+	pr_alert("Interrupt received\n");
 	//TODO: Send signal to owning process of watchdog device
 	return IRQ_HANDLED;
 }
@@ -221,13 +221,16 @@ static long xsc_logic_wdt_ioctl(struct file *f, unsigned int cmd, unsigned long 
 		xsc_logic_wdt->total_timeout = xsc_logic_wdt_calc_counts(xsc_logic_wdt, val);
 		val = (int) (xsc_logic_wdt->total_timeout >> xsc_logic_wdt->counter_divider);
 		// set both registers to be the same
-		printk(KERN_INFO "xsc_logic_wdt_v1: watchdog setting timeout to %d, counter_divider = %d, hz=%d\n", val, xsc_logic_wdt->counter_divider, xsc_logic_wdt_get_hz(xsc_logic_wdt));
+		dev_info(xsc_logic_wdt->dev, "setting timeout to %d, "
+			 "counter_divider=%d, hz=%d\n", val,
+			 xsc_logic_wdt->counter_divider,
+			 xsc_logic_wdt_get_hz(xsc_logic_wdt));
 		xsc_logic_wdt_set_reg(xsc_logic_wdt,REG_COMPINT,val);
 		xsc_logic_wdt_set_reg(xsc_logic_wdt,REG_COMPRST,val);
 		if (was_active) {
 			// Only toggle enable if not active
 			if (test_and_set_bit(0,&xsc_logic_wdt->watchdog_active))
-				printk(KERN_ERR "xsc_logic_wdt_v1: should never get here!\n");
+				dev_err(xsc_logic_wdt->dev, "should never get here!\n");
 			if ((xsc_logic_wdt_get_reg(xsc_logic_wdt, REG_STATUS) &
 				(XSC_LOGIC_WDT_ENABLE2_ACTIVE | XSC_LOGIC_WDT_ENABLE1_ACTIVE))
 				== 0)
@@ -264,7 +267,7 @@ static long xsc_logic_wdt_ioctl(struct file *f, unsigned int cmd, unsigned long 
 		if (was_active) {
 			// Only toggle enable if not active
 			if (test_and_set_bit(0,&xsc_logic_wdt->watchdog_active))
-				printk(KERN_ERR "xsc_logic_wdt_v1: should never get here!\n");
+				dev_err(xsc_logic_wdt->dev, "should never get here!\n");
 			if ((xsc_logic_wdt_get_reg(xsc_logic_wdt, REG_STATUS) &
 				(XSC_LOGIC_WDT_ENABLE2_ACTIVE | XSC_LOGIC_WDT_ENABLE1_ACTIVE))
 				== 0)
@@ -310,9 +313,9 @@ static int xsc_logic_wdt_open(struct inode *ino, struct file *f)
 	struct xsc_logic_wdt_dev *xsc_logic_wdt;
 	int rc;
 
-	pr_debug(DRIVER_NAME ": open\n");
-
 	xsc_logic_wdt = container_of(ino->i_cdev, struct xsc_logic_wdt_dev, cdev);
+	dev_dbg(xsc_logic_wdt->dev, "open\n");
+
 	if (test_and_set_bit(0, &xsc_logic_wdt->driver_open)) {
 		return -EBUSY;
 	}
@@ -322,12 +325,13 @@ static int xsc_logic_wdt_open(struct inode *ino, struct file *f)
 	rc = request_irq(xsc_logic_wdt->irq, xsc_logic_wdt_interrupt, 0, DRIVER_NAME, xsc_logic_wdt);
 	if (rc < 0) {
 		clear_bit(0,&xsc_logic_wdt->driver_open);
-		printk(KERN_ERR "xsc_logic_wdt_v1: could not request IRQ %d\n", xsc_logic_wdt->irq);
+		dev_err(xsc_logic_wdt->dev, "could not request IRQ %d\n",
+			xsc_logic_wdt->irq);
 		return -EBUSY;
 	}
 	xsc_logic_wdt->magic_close = 0;
 	if (test_and_set_bit(0,&xsc_logic_wdt->watchdog_active)) {
-		printk(KERN_INFO "xsc_logic_wdt_v1: watchdog already active at open\n");
+		dev_info(xsc_logic_wdt->dev, "watchdog already active at open\n");
 	} else {
 		xsc_logic_wdt_enable_toggle(xsc_logic_wdt);
 	}
@@ -339,9 +343,8 @@ static int xsc_logic_wdt_release(struct inode *ino, struct file *f)
 {
 	struct xsc_logic_wdt_dev *xsc_logic_wdt;
 
-	pr_debug(DRIVER_NAME ": close\n");
-
 	xsc_logic_wdt = container_of(ino->i_cdev, struct xsc_logic_wdt_dev, cdev);
+	dev_dbg(xsc_logic_wdt->dev, "close\n");
 
 	if (xsc_logic_wdt->watchdog_active && xsc_logic_wdt->magic_close) {
 		xsc_logic_wdt_enable_toggle(xsc_logic_wdt);
@@ -556,10 +559,10 @@ static int xsc_logic_wdt_probe_or_remove(bool probe, struct platform_device *ofd
 	val = (uint32_t) (xsc_logic_wdt->total_timeout >>
 			xsc_logic_wdt->counter_divider);
 	// set both registers to be the same
-	printk(KERN_INFO "xsc_logic_wdt_v1: watchdog setting timeout to %d,"
-			"counter_divider = %d, hz=%d\n", val,
-			xsc_logic_wdt->counter_divider,
-			xsc_logic_wdt_get_hz(xsc_logic_wdt));
+	dev_info(&ofdev->dev, "setting timeout to %d, "
+		 "counter_divider=%d, hz=%d\n", val,
+		 xsc_logic_wdt->counter_divider,
+		 xsc_logic_wdt_get_hz(xsc_logic_wdt));
 
 	xsc_logic_wdt_set_reg(xsc_logic_wdt, REG_COMPINT, val);
 	xsc_logic_wdt_set_reg(xsc_logic_wdt, REG_COMPRST, val);
@@ -687,7 +690,7 @@ static int __init xsc_logic_wdt_init(void) {
 
 	int result;
 
-	printk(KERN_INFO DRIVER_NAME ": initializing\n");
+	pr_debug("initializing\n");
 
 	/* Create class for this device */
 	xsc_logic_wdt_class = class_create(THIS_MODULE, DRIVER_NAME);
@@ -701,16 +704,13 @@ static int __init xsc_logic_wdt_init(void) {
 	result = alloc_chrdev_region(&xsc_logic_wdt_dev_id, 0,
 			1, DRIVER_NAME);
 	if (result < 0) {
-		printk(KERN_ERR DRIVER_NAME
-				": cannot allocate chrdev region\n");
+		pr_err("cannot allocate chrdev region\n");
 		goto fail1;
 	}
 
 	result = platform_driver_register(&of_driver);
 	if (result < 0) {
-		printk(KERN_INFO DRIVER_NAME
-				": of_register_platform_driver returned %d\n",
-				result);
+		pr_err("of_register_platform_driver returned %d\n", result);
 		goto fail2;
 	}
 
