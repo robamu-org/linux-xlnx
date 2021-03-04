@@ -225,5 +225,5 @@ obj-$(CONFIG_ZIIRAVE_WATCHDOG) += ziirave_wdt.o
 obj-$(CONFIG_SOFT_WATCHDOG) += softdog.o
 obj-$(CONFIG_MENF21BMC_WATCHDOG) += menf21bmc_wdt.o
 
-# Xiphos Q6S/Q7S with watchdog part in logic
-obj-$(CONFIG_XIPHOS_LOGIC_WATCHDOG_V1) += xsc_logic_wdt_v1.o
+# Xiphos ProAsic3 watchdog
+obj-$(CONFIG_XIPHOS_WATCHDOG) += xsc_wdt.o

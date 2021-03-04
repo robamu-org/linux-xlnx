@@ -36,7 +36,7 @@
 #include <linux/cpufreq.h>
 #endif
 
-#define DRIVER_NAME "xsc_logic_wdt_v1"
+#define DRIVER_NAME "xsc_wdt"
 #define DRIVER_DESCRIPTION "Xiphos Q6S/Q7S Watchdog V1"
 
 #define REG_ENABLE1 0
