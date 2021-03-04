@@ -1,7 +1,7 @@
 /**
  * Watchdog driver for Xilinx XPS Watchdog logic.
  *
- * Copyright (C) 2012 Xiphos Systems Corp.
+ * Copyright (C) 2012 - 2021 Xiphos Systems Corp.
  * All rights reserved.
  *
  * Author: Joshua Lamorie <joshua.lamorie@xiphos.ca>
