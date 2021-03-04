@@ -694,6 +694,7 @@ static struct of_device_id of_match[] = {
 	{ .compatible = "xlnx,xsc-q6s-watchdog-axi-v1-1.00.a" },
 	{ .compatible = "xlnx,xsc-q7s-watchdog-plb-v1-1.00.a" },
 	{ .compatible = "xlnx,xsc-q7s-watchdog-axi-v1-1.00.a" },
+	{ .compatible = "xsc,pa3-wdt-v1" },
 	{ /* end of list */ },
 };
 
