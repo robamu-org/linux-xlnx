@@ -154,7 +154,7 @@ static int abrtcmc_write_reg(struct i2c_client *client,
 	return 0;
 }
 
-static int abrtcmc_rtc_time_from_buffer(struct i2c_client *client, 
+static int abrtcmc_rtc_time_from_buffer(struct i2c_client *client,
                                           uint8_t buf[7], struct rtc_time *tm)
 {
 	dev_dbg(&client->dev,
@@ -168,7 +168,7 @@ static int abrtcmc_rtc_time_from_buffer(struct i2c_client *client,
 	        buf[ABRTCMC_WEEKDAYS],
 	        buf[ABRTCMC_MONTHS],
 	        buf[ABRTCMC_YEARS]);
-	
+
 	/* Seconds between 0 and 59 */
 	tm->tm_sec = bcd2bin(buf[ABRTCMC_SECONDS] & 0x7F);
 	/* Minutes between 0 and 59 */
@@ -193,7 +193,7 @@ static int abrtcmc_rtc_time_from_buffer(struct i2c_client *client,
 	if (rtc_valid_tm(tm) < 0) {
 		goto invalid_values;
 	}
-	
+
 	dev_dbg(&client->dev, "%s: rtc_time secs=%d, mins=%d, hours=%d, "
 	        "mday=%d, mon=%d, year=%d, wday=%d\n",
 	        __func__,
@@ -427,7 +427,7 @@ static int abrtcmc_set_alarm(struct i2c_client *client,
 	if (ret) {
 		return ret;
 	}
-	
+
 	return 0;
 }
 
@@ -487,15 +487,15 @@ static int abrtcmc_rtc_sanitize_register(struct i2c_client *client)
 	}
 	/* Anything but 0 indicate RTC lost power */
 	if ( (ctrl[0] & 0x20) == 0) {
-		dev_dbg(&client->dev, 
-		        "%s: PON bit inactive (control register is %02X)\n",  
+		dev_dbg(&client->dev,
+		        "%s: PON bit inactive (control register is %02X)\n",
 		        __func__,
 		        ctrl[0]);
 		return 0;
 	}
 
-	dev_dbg(&client->dev, 
-	        "%s: PON bit active : RTC lost power (control register is %02X)\n",  
+	dev_dbg(&client->dev,
+	        "%s: PON bit active : RTC lost power (control register is %02X)\n",
 	        __func__,
 	        ctrl[0]);
 
@@ -526,8 +526,8 @@ static int abrtcmc_rtc_sanitize_register(struct i2c_client *client)
 
 	/* Reset PON : it won't reset unless there is a power cut */
 	ctrl[0] &= ~(0x20);
-	dev_dbg(&client->dev, 
-	        "%s: Reseting PON bit (control register to %02X)\n",  
+	dev_dbg(&client->dev,
+	        "%s: Reseting PON bit (control register to %02X)\n",
 	        __func__,
 	        ctrl[0]);
 	ret = abrtcmc_write_reg(client, ABRTCMC_REG_CONTROL_STATUS, ctrl[0]);
@@ -553,13 +553,13 @@ static int abrtcmc_clear_alarm_interrupt(struct i2c_client *client)
 		return 0;
 	}
 
-	dev_dbg(&client->dev, 
-	        "%s: Clearing AF 'alarm interrupt generated' register\n",  
+	dev_dbg(&client->dev,
+	        "%s: Clearing AF 'alarm interrupt generated' register\n",
 	        __func__);
 
-	/* System in ON and "Alarm interrupt generated" is active 
+	/* System in ON and "Alarm interrupt generated" is active
 	   Should be cleared, otherwise it could lead to unexpected behavior
-	   Clear "enabled" as well: 
+	   Clear "enabled" as well:
 	   There should be no case where "pending" must be clear but "enabled"
 	   should be kept */
 	alrm.enabled = 0;
