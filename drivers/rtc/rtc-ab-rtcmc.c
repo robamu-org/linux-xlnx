@@ -553,28 +553,6 @@ static int abrtcmc_clear_alarm_interrupt(struct i2c_client *client)
 	return ret;
 }
 
-static int abrtcmc_remove(struct i2c_client *client)
-{
-	struct ab_rtcmc *abrtcmc = NULL;
-
-	if (client != NULL) {
-		abrtcmc = devm_kzalloc(&client->dev, sizeof(struct ab_rtcmc),
-				       GFP_KERNEL);
-
-		if (!abrtcmc)
-			return -ENOMEM;
-
-		if (abrtcmc->rtc) {
-			sysfs_remove_group(&abrtcmc->rtc->dev.kobj,
-					   &abrtcmc_rtc_sysfs_files);
-		}
-
-		i2c_unregister_device(client);
-	}
-
-	return 0;
-}
-
 static int abrtcmc_rtc_probe(struct i2c_client *client,
 			     const struct i2c_device_id *id)
 {
@@ -598,12 +576,12 @@ static int abrtcmc_rtc_probe(struct i2c_client *client,
 	 */
 	ret = abrtcmc_rtc_sanitize_register(client);
 	if (ret)
-		goto exit_on_error;
+		return ret;
 
 	/* Clear "Alarm Interrupt Generated" if one is active */
 	ret = abrtcmc_clear_alarm_interrupt(client);
 	if (ret)
-		goto exit_on_error;
+		return ret;
 
 	/* This RTC has a wakealarm capability */
 	device_set_wakeup_capable(&client->dev, 1);
@@ -613,8 +591,8 @@ static int abrtcmc_rtc_probe(struct i2c_client *client,
 						abrtcmc_driver.driver.name,
 						&abrtcmc_rtc_ops,
 						THIS_MODULE);
-	if (!abrtcmc->rtc)
-		goto exit_on_error;
+	if (IS_ERR(abrtcmc->rtc))
+		return PTR_ERR(abrtcmc->rtc);
 
 	/* Deactivating interrupt */
 	abrtcmc->rtc->uie_unsupported = 1;
@@ -622,14 +600,26 @@ static int abrtcmc_rtc_probe(struct i2c_client *client,
 	/* Creating sysfs */
 	ret = sysfs_create_group(&abrtcmc->rtc->dev.kobj,
 				 &abrtcmc_rtc_sysfs_files);
-	if (ret)
-		goto exit_on_error;
 
-	return PTR_ERR_OR_ZERO(abrtcmc->rtc);
-
-exit_on_error:
-	abrtcmc_remove(client);
 	return ret;
+}
+
+static int abrtcmc_remove(struct i2c_client *client)
+{
+	struct ab_rtcmc *abrtcmc = NULL;
+
+	if (!client)
+		return 0;
+
+	abrtcmc = i2c_get_clientdata(client);
+	if (!abrtcmc)
+		return 0;
+
+	if (abrtcmc->rtc)
+		sysfs_remove_group(&abrtcmc->rtc->dev.kobj,
+				   &abrtcmc_rtc_sysfs_files);
+
+	return 0;
 }
 
 static const struct i2c_device_id abrtcmc_id[] = {
