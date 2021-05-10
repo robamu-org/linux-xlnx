@@ -125,6 +125,7 @@
  * The first value can contain the following defined flags (See description below) :
  * * XIPHOS_TRIGGER_INVERT_POLARITY
  * * XIPHOS_TRIGGER_CONTINUOUS
+ * * XIPHOS_TRIGGER_WAIT_PPS
  *
  * The second value is the delay before launching the trig sequence on a PPS signal.
  * It is encoded on an 18-bits value, each increment represents 100 us.
@@ -137,7 +138,8 @@
  * Define Trigger configuration flags
  */
 #define XIPHOS_TRIGGER_CONTINUOUS	(0x1)		// Run continuously by repeating the TRIG[0] until stream off
-#define XIPHOS_TRIGGER_INVERT_POLARITY	(0x1 << 31)	// Invert the polarity of the Trigger
+#define XIPHOS_TRIGGER_INVERT_POLARITY	(0x1 << 1)	// Invert the polarity of the Trigger
+#define XIPHOS_TRIGGER_WAIT_PPS		(0x1 << 2)	// Wait for PPS to send trigger
 
 /*
  * V4L2_CID_XIPHOS_RAMP
@@ -148,4 +150,3 @@
  * This is not supported yet.
  */
 //#define V4L2_CID_XIPHOS_RAMP		(V4L2_CID_XIPHOS_BASE + 2)
-
