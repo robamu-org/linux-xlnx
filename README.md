@@ -20,7 +20,9 @@ make ARCH=arm UIMAGE_LOADADDR=0x8000 uImage
 
 # Prerequisites
 
-You need to have the Yocto SDK installed, which only works on a Linux host. 
+You need to have the Yocto SDK installed, which only works on a Linux host. Building 
+was tested on Ubuntu 21.04, 16.04 and 18.04.
+
 See Q7S user manual page 19 for more information. You can install the necessary files 
 [from here](https://trac2.xiphos.ca/manual/attachment/wiki/Q7RevB/UserManual/xsc-release-1542-xsc-q7-2.2.4-4ba6f44b.tar).
 
@@ -41,9 +43,11 @@ sudo apt-get install libncurses-dev
 
 In .config file make sure the following variables are set to 'y'.
 
+```
 CONFIG_CAN=y
 CONFIG_CAN_DEV=y
 CONFIG_CAN_XILINXCAN=y
+```
 
 # Troubleshooting
 
