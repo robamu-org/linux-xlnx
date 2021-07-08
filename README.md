@@ -15,6 +15,12 @@ make menuconfig
 To build a new kernel image run the following command.
 
 ```sh
+make LDFLAGS="" Image
+```
+
+Other commands which also works
+
+```sh
 make ARCH=arm UIMAGE_LOADADDR=0x8000 uImage
 ```
 
