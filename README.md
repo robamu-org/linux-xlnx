@@ -49,6 +49,19 @@ CONFIG_CAN_DEV=y
 CONFIG_CAN_XILINXCAN=y
 ```
 
+Other notable changes and settings
+
+```
+# CONFIG_SERIAL_UARTLITE_CONSOLE is not set
+CONFIG_SERIAL_UARTLITE_NR_UARTS=5
+
+CONFIG_CAN_RAW=y
+CONFIG_CAN_BCM=y
+CONFIG_CAN_GW=y
+CONFIG_CAN_SLCAN=y
+# CONFIG_CAN_LEDS is not set
+```
+
 # Troubleshooting
 
 * After changing the kernel configuration run 'make clean', otherwise booting the kernel may fail.
