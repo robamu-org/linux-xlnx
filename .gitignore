@@ -8,9 +8,6 @@
 # any tracked files which get ignored after the change.
 #
 
-# Custom rules for EIVE
-!.config
-
 # Normal rules
 #
 .*
@@ -119,3 +116,6 @@ all.config
 
 # Kdevelop4
 *.kdev4
+
+# Custom rules for EIVE
+!/.config
