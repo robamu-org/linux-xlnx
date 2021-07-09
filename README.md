@@ -15,7 +15,7 @@ make menuconfig
 To build a new kernel image run the following command.
 
 ```sh
-make LDFLAGS="" Image
+make LDFLAGS="" uImage
 ```
 
 Other commands which also works
