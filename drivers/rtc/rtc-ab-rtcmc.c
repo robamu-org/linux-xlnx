@@ -106,7 +106,7 @@ struct ab_rtcmc {
 };
 
 static int abrtcmc_read_regs(struct i2c_client *client, uint8_t reg,
-			      uint8_t *data, size_t n)
+			     uint8_t *data, size_t n)
 {
 	struct i2c_msg msgs[] = {
 		{
@@ -138,7 +138,7 @@ static int abrtcmc_read_regs(struct i2c_client *client, uint8_t reg,
 
 
 static int abrtcmc_write_reg(struct i2c_client *client,
-			      uint8_t reg, uint8_t val)
+			     uint8_t reg, uint8_t val)
 {
 	uint8_t data[2] = { reg, val };
 	int ret = 0;
@@ -154,51 +154,54 @@ static int abrtcmc_write_reg(struct i2c_client *client,
 	return 0;
 }
 
-static int abrtcmc_rtc_time_from_buffer(struct i2c_client *client, 
-                                          uint8_t buf[7], struct rtc_time *tm)
+static int abrtcmc_rtc_time_from_buffer(struct i2c_client *client,
+					uint8_t buf[7], struct rtc_time *tm)
 {
 	dev_dbg(&client->dev,
-	        "%s: raw i2c sec=0x%02X, min=0x%02X, hr=0x%02X, "
-	        "mday=0x%02X,  wday=0x%02X, mon=0x%02X, year=0x%02X,",
-	        __func__,
-	        buf[ABRTCMC_SECONDS],
-	        buf[ABRTCMC_MINUTES],
-	        buf[ABRTCMC_HOURS],
-	        buf[ABRTCMC_DAYS],
-	        buf[ABRTCMC_WEEKDAYS],
-	        buf[ABRTCMC_MONTHS],
-	        buf[ABRTCMC_YEARS]);
-	
+		"%s: raw i2c sec=0x%02X, min=0x%02X, hr=0x%02X, "
+		"mday=0x%02X,  wday=0x%02X, mon=0x%02X, year=0x%02X,",
+		__func__,
+		buf[ABRTCMC_SECONDS],
+		buf[ABRTCMC_MINUTES],
+		buf[ABRTCMC_HOURS],
+		buf[ABRTCMC_DAYS],
+		buf[ABRTCMC_WEEKDAYS],
+		buf[ABRTCMC_MONTHS],
+		buf[ABRTCMC_YEARS]);
+
 	/* Seconds between 0 and 59 */
 	tm->tm_sec = bcd2bin(buf[ABRTCMC_SECONDS] & 0x7F);
 	/* Minutes between 0 and 59 */
 	tm->tm_min = bcd2bin(buf[ABRTCMC_MINUTES] & 0x7F);
 	/* Only support 24 hours mode: hour mode (bit6) MUST be 0
-	   Hours must be between 0 and 23 */
+	 * Hours must be between 0 and 23
+	 */
 	tm->tm_hour = bcd2bin(buf[ABRTCMC_HOURS] & 0x3F);
 	/* Day of the Month between 1 and 31 */
 	tm->tm_mday = bcd2bin(buf[ABRTCMC_DAYS] & 0x3F);
 	/* RTC stores week day from 1 to 7; tm_wday must be 0 to 6
-	   Day of the Week between 0 and 6  */
+	 * Day of the Week between 0 and 6
+	 */
 	tm->tm_wday = (buf[ABRTCMC_WEEKDAYS] & 0x07) - 1;
 	/* RTC stores month from 1 to 12; tm_mon must be 0 to 11
-	   Month between 0 and 11 */
+	 * Month between 0 and 11
+	 */
 	tm->tm_mon = bcd2bin(buf[ABRTCMC_MONTHS] & 0x1F) - 1;
 	/* RTC only support 2000 to 2079, it stores 0 to 79; tm_year starts
-	       at 1900, so add 100 to the result
-	   Year between 100 and 179 */
+	 * at 1900, so add 100 to the result
+	 * Year between 100 and 179
+	 */
 	tm->tm_year = bcd2bin(buf[ABRTCMC_YEARS] & 0x7f) + 100;
 
 	/* Validate converted values from buffer make sense in rtc_time */
-	if (rtc_valid_tm(tm) < 0) {
+	if (rtc_valid_tm(tm) < 0)
 		goto invalid_values;
-	}
-	
+
 	dev_dbg(&client->dev, "%s: rtc_time secs=%d, mins=%d, hours=%d, "
-	        "mday=%d, mon=%d, year=%d, wday=%d\n",
-	        __func__,
-	        tm->tm_sec, tm->tm_min, tm->tm_hour,
-	        tm->tm_mday, tm->tm_mon, tm->tm_year, tm->tm_wday);
+		"mday=%d, mon=%d, year=%d, wday=%d\n",
+		__func__,
+		tm->tm_sec, tm->tm_min, tm->tm_hour,
+		tm->tm_mday, tm->tm_mon, tm->tm_year, tm->tm_wday);
 
 	return 0;
 
@@ -217,9 +220,8 @@ invalid_values:
 static int abrtcmc_rtc_time_to_buffer(struct rtc_time *tm, uint8_t buf[7])
 {
 	/* Make sure the actual rtc_time passed is coherent */
-	if (rtc_valid_tm(tm) < 0) {
+	if (rtc_valid_tm(tm) < 0)
 		return -EINVAL;
-	}
 
 	/* Hour, minutes and seconds between 0 and 59 */
 	buf[ABRTCMC_SECONDS] = bin2bcd(tm->tm_sec);
@@ -227,23 +229,27 @@ static int abrtcmc_rtc_time_to_buffer(struct rtc_time *tm, uint8_t buf[7])
 	buf[ABRTCMC_HOURS]   = bin2bcd(tm->tm_hour);
 
 	/* Do not support storing in 12 hours:
-	   Force 24 hours mode (bit 6 == 0) on RTC */
+	 * Force 24 hours mode (bit 6 == 0) on RTC
+	 */
 	buf[ABRTCMC_HOURS] &= 0x3F;
 
 	/* Day of the Month between 1 and 31 */
 	buf[ABRTCMC_DAYS] = bin2bcd(tm->tm_mday);
 
 	/* tm_mon is 0 to 11
-	   RTC week day are 1 to 12: add 1 */
+	 * RTC week day are 1 to 12: add 1
+	 */
 	buf[ABRTCMC_MONTHS] = (bin2bcd(tm->tm_mon) + 1);
 
 	/* tm_year 0 is at at 1900
-	   RTC 0 at 2000 to 2079, supports only 0 to 79:
-	   Modulo 100 tm_year, should be ok until 2079 */
+	 * RTC 0 at 2000 to 2079, supports only 0 to 79:
+	 * Modulo 100 tm_year, should be ok until 2079
+	 */
 	buf[ABRTCMC_YEARS] = bin2bcd(tm->tm_year % 100);
 
 	/* tm_wday must be 0 to 6
-	   RTC week day is 1 to 7: add 1 */
+	 * RTC week day is 1 to 7: add 1
+	 */
 	buf[ABRTCMC_WEEKDAYS] = (tm->tm_wday & 0x07) + 1;
 
 	return 0;
@@ -255,16 +261,14 @@ static int abrtcmc_get_datetime(struct i2c_client *client, struct rtc_time *tm)
 	int ret = 0;
 
 	ret = abrtcmc_read_regs(client, ABRTCMC_REG_CLOCK_BASE, buf,
-	                          sizeof(buf));
-	if (ret) {
+				sizeof(buf));
+	if (ret)
 		return ret;
-	}
 
 	/* Convert buffer into rtc_time struct */
 	ret = abrtcmc_rtc_time_from_buffer(client, buf, tm);
-	if (ret < 0) {
+	if (ret < 0)
 		dev_err(&client->dev, "RTC datetime values are invalid.\n");
-	}
 
 	return ret;
 }
@@ -276,24 +280,22 @@ static int abrtcmc_set_datetime(struct i2c_client *client, struct rtc_time *tm)
 	uint8_t buf[7] = { 0 };
 
 	dev_dbg(&client->dev, "%s: secs=%d, mins=%d, hours=%d, "
-	        "mday=%d, mon=%d, year=%d, wday=%d\n",
-	        __func__,
-	        tm->tm_sec, tm->tm_min, tm->tm_hour,
-	        tm->tm_mday, tm->tm_mon, tm->tm_year, tm->tm_wday);
+		"mday=%d, mon=%d, year=%d, wday=%d\n",
+		__func__,
+		tm->tm_sec, tm->tm_min, tm->tm_hour,
+		tm->tm_mday, tm->tm_mon, tm->tm_year, tm->tm_wday);
 
 	/* Convert rtc_time to RTC buffer */
 	ret = abrtcmc_rtc_time_to_buffer(tm, buf);
-	if (ret) {
+	if (ret)
 		return ret;
-	}
 
 	/* Write register's data */
 	for (i = 0; i < ARRAY_SIZE(buf); i++) {
 		ret = abrtcmc_write_reg(client, ABRTCMC_REG_CLOCK_BASE + i,
-					 buf[i]);
-		if (ret) {
+					buf[i]);
+		if (ret)
 			return -EIO;
-		}
 	}
 
 	return 0;
@@ -310,17 +312,16 @@ static int abrtcmc_set_time(struct device *dev, struct rtc_time *tm)
 }
 
 static int abrtcmc_get_alarm(struct i2c_client *client,
-                               struct rtc_wkalrm *alarm)
+			     struct rtc_wkalrm *alarm)
 {
 	struct rtc_time *const tm = &alarm->time;
 	uint8_t buf[7] = { 0 };
 	int ret = 0;
 
 	ret = abrtcmc_read_regs(client, ABRTCMC_REG_ALARM_BASE, buf,
-	                         sizeof(buf));
-	if (ret) {
+				sizeof(buf));
+	if (ret)
 		return ret;
-	}
 
 	/* Convert buffer to rtc_time struct */
 	ret = abrtcmc_rtc_time_from_buffer(client, buf, tm);
@@ -331,30 +332,26 @@ static int abrtcmc_get_alarm(struct i2c_client *client,
 
 	/* Checking if alarm enabled */
 	ret = abrtcmc_read_regs(client, ABRTCMC_REG_CONTROL_INT, buf, 1);
-	if (ret){
-		dev_err(&client->dev,
-			"%s: reading alarm control failed\n",
-                        __func__);
-
+	if (ret) {
+		dev_err(&client->dev, "%s: reading alarm control failed\n",
+			__func__);
 		return ret;
 	}
+
 	alarm->enabled = (buf[0] & 0x01) ? 1 : 0;
 
 	/* Checking if an alarm is pending */
 	ret = abrtcmc_read_regs(client, ABRTCMC_REG_CONTROL_INTFLAG, buf, 1);
-	if (ret){
-		dev_err(&client->dev,
-			"%s: reading alarm flags failed\n",
-                        __func__);
+	if (ret) {
+		dev_err(&client->dev, "%s: reading alarm flags failed\n",
+			__func__);
 
 		return ret;
 	}
+
 	alarm->pending = (buf[0] & 0x01) ? 1 : 0;
-	dev_dbg(&client->dev,
-		"%s: alarm enabled:0x%X pending:0x%X\n",
-		__func__,
-		alarm->enabled,
-		alarm->pending);
+	dev_dbg(&client->dev, "%s: alarm enabled:0x%X pending:0x%X\n",
+		__func__, alarm->enabled, alarm->pending);
 
 	return 0;
 }
@@ -365,7 +362,7 @@ static int abrtcmc_rtc_read_alarm(struct device *dev, struct rtc_wkalrm *alarm)
 }
 
 static int abrtcmc_set_alarm(struct i2c_client *client,
-                               struct rtc_wkalrm *alarm)
+			     struct rtc_wkalrm *alarm)
 {
 	struct rtc_time *const tm = &alarm->time;
 	size_t i = 0;
@@ -374,46 +371,43 @@ static int abrtcmc_set_alarm(struct i2c_client *client,
 
 	dev_dbg(&client->dev,
 		"%s: secs=%d, mins=%d, hours=%d, "
-	        "mday=%d, mon=%d, year=%d, wday=%d\n",
-	        __func__,
-	        tm->tm_sec, tm->tm_min, tm->tm_hour,
-	        tm->tm_mday, tm->tm_mon, tm->tm_year, tm->tm_wday);
+		"mday=%d, mon=%d, year=%d, wday=%d\n",
+		__func__,
+		tm->tm_sec, tm->tm_min, tm->tm_hour,
+		tm->tm_mday, tm->tm_mon, tm->tm_year, tm->tm_wday);
 
 	/* Convert rtc_time to RTC buffer */
 	ret = abrtcmc_rtc_time_to_buffer(tm, buf);
-	if (ret) {
+	if (ret)
 		return ret;
-	}
 
 	/* write register's data */
 	for (i = 0; i < ARRAY_SIZE(buf); i++) {
 		// Add the enable bit for all registers since this is provided
 		// as an absolute wakeup alarm
 		ret = abrtcmc_write_reg(client,
-		                        ABRTCMC_REG_ALARM_BASE + i,
-		                        buf[i] | 0x80);
-		if (ret) {
+			    ABRTCMC_REG_ALARM_BASE + i,
+			    buf[i] | 0x80);
+		if (ret)
 			return -EIO;
-		}
 	}
 
 	/* Setting new alarm : any pending left make no sense, remove it */
 	ret = abrtcmc_read_regs(client, ABRTCMC_REG_CONTROL_INTFLAG, buf, 1);
-	if (ret) {
+	if (ret)
 		return ret;
-	}
+
 	// Remove AF bit 0 (Alarm Interrupt Generated)
 	buf[1] = buf[0] & ~(0x01);
-	ret = abrtcmc_write_reg(client,ABRTCMC_REG_CONTROL_INTFLAG, buf[1]);
-	if (ret) {
+	ret = abrtcmc_write_reg(client, ABRTCMC_REG_CONTROL_INTFLAG, buf[1]);
+	if (ret)
 		return ret;
-	}
 
 	/* Read alarm enable register */
 	ret = abrtcmc_read_regs(client, ABRTCMC_REG_CONTROL_INT, buf, 1);
-	if (ret) {
+	if (ret)
 		return ret;
-	}
+
 	/* For safety, handle the case where alarm->enabled is false */
 	if (alarm->enabled) {
 		// Set AIE bit 0 (Enable Alarm INT)
@@ -423,12 +417,9 @@ static int abrtcmc_set_alarm(struct i2c_client *client,
 		buf[1] = buf[0] & ~(0x01);
 	}
 	/* Write update alarm enabled register */
-	ret = abrtcmc_write_reg(client,ABRTCMC_REG_CONTROL_INT, buf[1]);
-	if (ret) {
-		return ret;
-	}
-	
-	return 0;
+	ret = abrtcmc_write_reg(client, ABRTCMC_REG_CONTROL_INT, buf[1]);
+
+	return ret;
 }
 
 
@@ -446,26 +437,27 @@ static const struct rtc_class_ops abrtcmc_rtc_ops = {
 
 /* sysfs interface */
 static ssize_t abrtcmc_sysfs_show_temperature(struct device *dev,
-				       struct device_attribute *attr, char *buf)
+					      struct device_attribute *attr,
+					      char *buf)
 {
 	int ret = 0;
 	int8_t data = 0;
 
 	/* sysfs build from the kobj of the rtc device not from the i2c*/
 	ret = abrtcmc_read_regs(to_i2c_client(dev->parent),
-	                         ABRTCMC_REG_TEMPERATURE, &data, 1);
-	if (ret) {
+				ABRTCMC_REG_TEMPERATURE, &data, 1);
+	if (ret)
 		return ret;
-	}
+
 	data -= 60;
 	return sprintf(buf, "%d\n", data);
 }
 
 static DEVICE_ATTR(temperature, 0444, abrtcmc_sysfs_show_temperature, NULL);
 
-static struct attribute *abrtcmc_attrs [] = {
+static struct attribute *abrtcmc_attrs[] = {
 	&dev_attr_temperature.attr,
-	NULL
+	NULL,
 };
 
 static const struct attribute_group abrtcmc_rtc_sysfs_files = {
@@ -479,25 +471,24 @@ static int abrtcmc_rtc_sanitize_register(struct i2c_client *client)
 	int ret = 0;
 	uint8_t ctrl[1] = {0};
 
-	/* Check "PON" PowerOn register : it indicates if RTC had lost power
-	   If so, registers are not to be trusted:  wipe everything */
+	/* Check "PON" PowerOn register : it indicates if RTC had lost power If
+	 * so, registers are not to be trusted:  wipe everything
+	 */
 	ret = abrtcmc_read_regs(client, ABRTCMC_REG_CONTROL_STATUS, ctrl, 1);
-	if (ret) {
+	if (ret)
 		return ret;
-	}
+
 	/* Anything but 0 indicate RTC lost power */
-	if ( (ctrl[0] & 0x20) == 0) {
-		dev_dbg(&client->dev, 
-		        "%s: PON bit inactive (control register is %02X)\n",  
-		        __func__,
-		        ctrl[0]);
+	if ((ctrl[0] & 0x20) == 0) {
+		dev_dbg(&client->dev,
+			"%s: PON bit inactive (control register is %02X)\n",
+			__func__, ctrl[0]);
 		return 0;
 	}
 
-	dev_dbg(&client->dev, 
-	        "%s: PON bit active : RTC lost power (control register is %02X)\n",  
-	        __func__,
-	        ctrl[0]);
+	dev_dbg(&client->dev,
+		"%s: PON bit active : RTC lost power (control register is %02X)\n",
+		__func__, ctrl[0]);
 
 	/* Set rtc_time to 'zero' value */
 	tm.tm_sec  = 0;
@@ -514,28 +505,23 @@ static int abrtcmc_rtc_sanitize_register(struct i2c_client *client)
 
 	/* Reset datetime to base value */
 	ret = abrtcmc_set_datetime(client, &tm);
-	if (ret) {
+	if (ret)
 		return ret;
-	}
 
 	/* Reset Alarm time */
 	ret = abrtcmc_set_alarm(client, &alrm);
-	if (ret) {
+	if (ret)
 		return ret;
-	}
 
 	/* Reset PON : it won't reset unless there is a power cut */
 	ctrl[0] &= ~(0x20);
-	dev_dbg(&client->dev, 
-	        "%s: Reseting PON bit (control register to %02X)\n",  
-	        __func__,
-	        ctrl[0]);
-	ret = abrtcmc_write_reg(client, ABRTCMC_REG_CONTROL_STATUS, ctrl[0]);
-	if (ret) {
-		return ret;
-	}
+	dev_dbg(&client->dev,
+		"%s: Reseting PON bit (control register to %02X)\n",
+		__func__, ctrl[0]);
 
-	return 0;
+	ret = abrtcmc_write_reg(client, ABRTCMC_REG_CONTROL_STATUS, ctrl[0]);
+
+	return ret;
 }
 
 static int abrtcmc_clear_alarm_interrupt(struct i2c_client *client)
@@ -544,117 +530,96 @@ static int abrtcmc_clear_alarm_interrupt(struct i2c_client *client)
 	int ret = 0;
 
 	ret = abrtcmc_get_alarm(client, &alrm);
-	if (ret) {
+	if (ret)
 		return ret;
-	}
 
 	/* No alarm pending, i.e. no "alarm interrupt generated" left to clean*/
-	if (!alrm.pending) {
+	if (!alrm.pending)
 		return 0;
-	}
 
-	dev_dbg(&client->dev, 
-	        "%s: Clearing AF 'alarm interrupt generated' register\n",  
-	        __func__);
+	dev_dbg(&client->dev,
+		"%s: Clearing AF 'alarm interrupt generated' register\n",
+		__func__);
 
-	/* System in ON and "Alarm interrupt generated" is active 
-	   Should be cleared, otherwise it could lead to unexpected behavior
-	   Clear "enabled" as well: 
-	   There should be no case where "pending" must be clear but "enabled"
-	   should be kept */
+	/* System in ON and "Alarm interrupt generated" is active Should be
+	 * cleared, otherwise it could lead to unexpected behavior Clear
+	 * "enabled" as well: There should be no case where "pending" must be
+	 * clear but "enabled" should be kept
+	 */
 	alrm.enabled = 0;
 	alrm.pending = 0;
 	ret = abrtcmc_set_alarm(client, &alrm);
-	if (ret) {
-		return ret;
-	}
 
-	return 0;
-}
-
-static int abrtcmc_remove(struct i2c_client *client)
-{
-	struct ab_rtcmc* abrtcmc = NULL;
-
-	if (client != NULL) {
-		abrtcmc = devm_kzalloc(&client->dev, sizeof(struct ab_rtcmc),
-				GFP_KERNEL);
-
-		if (!abrtcmc) {
-			return -ENOMEM;
-		}
-
-		if (abrtcmc->rtc) {
-			sysfs_remove_group(&abrtcmc->rtc->dev.kobj,
-		                           &abrtcmc_rtc_sysfs_files);
-		}
-
-		i2c_unregister_device(client);
-	}
-
-	return 0;
+	return ret;
 }
 
 static int abrtcmc_rtc_probe(struct i2c_client *client,
-			  const struct i2c_device_id *id)
+			     const struct i2c_device_id *id)
 {
-	struct ab_rtcmc* abrtcmc = NULL;
+	struct ab_rtcmc *abrtcmc = NULL;
 	int ret = 0;
 
-	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
+	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C))
 		return -ENODEV;
-	}
 
 	abrtcmc = devm_kzalloc(&client->dev, sizeof(struct ab_rtcmc),
-				GFP_KERNEL);
-	if (!abrtcmc) {
+			       GFP_KERNEL);
+	if (!abrtcmc)
 		return -ENOMEM;
-	}
 
 	dev_dbg(&client->dev, "AB-RTCMC chip found\n");
 
 	i2c_set_clientdata(client, abrtcmc);
 
 	/* This particular RTC initialize its register at random values (!!)
-	 * They MUST be sanitized to clear any invalid values */
+	 * They MUST be sanitized to clear any invalid values
+	 */
 	ret = abrtcmc_rtc_sanitize_register(client);
-	if (ret) {
-		goto exit_on_error;
-	}
+	if (ret)
+		return ret;
 
 	/* Clear "Alarm Interrupt Generated" if one is active */
 	ret = abrtcmc_clear_alarm_interrupt(client);
-	if (ret) {
-		goto exit_on_error;
-	}
+	if (ret)
+		return ret;
 
 	/* This RTC has a wakealarm capability */
 	device_set_wakeup_capable(&client->dev, 1);
 
 	/* Register driver to the kernel */
 	abrtcmc->rtc = devm_rtc_device_register(&client->dev,
-	                          abrtcmc_driver.driver.name,
-	                          &abrtcmc_rtc_ops,
-	                          THIS_MODULE);
-	if (!abrtcmc->rtc) {
-		goto exit_on_error;
-	}
+						abrtcmc_driver.driver.name,
+						&abrtcmc_rtc_ops,
+						THIS_MODULE);
+	if (IS_ERR(abrtcmc->rtc))
+		return PTR_ERR(abrtcmc->rtc);
 
 	/* Deactivating interrupt */
 	abrtcmc->rtc->uie_unsupported = 1;
 
 	/* Creating sysfs */
 	ret = sysfs_create_group(&abrtcmc->rtc->dev.kobj,
-	                         &abrtcmc_rtc_sysfs_files);
-	if (ret) {
-		goto exit_on_error;
-	}
+				 &abrtcmc_rtc_sysfs_files);
 
-	return PTR_ERR_OR_ZERO(abrtcmc->rtc);
-
-exit_on_error:
-	abrtcmc_remove(client);
 	return ret;
+}
+
+static int abrtcmc_remove(struct i2c_client *client)
+{
+	struct ab_rtcmc *abrtcmc = NULL;
+
+	if (!client)
+		return 0;
+
+	abrtcmc = i2c_get_clientdata(client);
+	if (!abrtcmc)
+		return 0;
+
+	if (abrtcmc->rtc)
+		sysfs_remove_group(&abrtcmc->rtc->dev.kobj,
+				   &abrtcmc_rtc_sysfs_files);
+
+	return 0;
 }
 
 static const struct i2c_device_id abrtcmc_id[] = {

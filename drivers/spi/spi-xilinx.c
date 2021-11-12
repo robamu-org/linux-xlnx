@@ -109,6 +109,7 @@ struct xilinx_spi {
 	struct clk *axi4_clk;
 	struct clk *spi_clk;
 	struct device *dev;
+	struct completion done;
 	u8 *rx_ptr;
 	const u8 *tx_ptr;
 	u8 bytes_per_word;
@@ -312,6 +313,7 @@ static irqreturn_t xilinx_spi_irq(int irq, void *dev_id)
 	xspi->write_fn(ipif_isr, xspi->regs + XIPIF_V123B_IISR_OFFSET);
 	if (ipif_isr & XSPI_INTR_TX_EMPTY)  {
 		/* Transmission completed */
+		complete(&xspi->done);
 		xspi->rx_fifo(xspi);
 		if (xspi->bytes_to_transfer) {
 			/* There is more data to send */
@@ -363,6 +365,7 @@ static int xspi_setup_transfer(struct spi_device *qspi,
 	else
 		xqspi->cs_inactive |= BIT(qspi->chip_select);
 
+	reinit_completion(&xqspi->done);
 	return 0;
 }
 
@@ -441,6 +444,7 @@ static int xspi_start_transfer(struct spi_master *master,
 	xqspi->write_fn(XIPIF_V123B_GINTR_ENABLE,
 			xqspi->regs + XIPIF_V123B_DGIER_OFFSET);
 
+	wait_for_completion(&xqspi->done);
 	return transfer->len;
 }
 
@@ -805,6 +809,8 @@ static int xilinx_spi_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "Dual Mode not supported\n");
 		goto clk_unprepare_all;
 	}
+
+	init_completion(&xspi->done);
 	xspi->cs_inactive = 0xffffffff;
 	ret = spi_register_master(master);
 	if (ret) {

@@ -299,12 +299,14 @@ struct xilinx_cdma_tx_segment {
  * struct xilinx_dma_tx_descriptor - Per Transaction structure
  * @async_tx: Async transaction descriptor
  * @segments: TX segments list
+ * @segment_count: The number of TX segments
  * @node: Node in the channel descriptors list
  * @cyclic: Check for cyclic transfers.
  */
 struct xilinx_dma_tx_descriptor {
 	struct dma_async_tx_descriptor async_tx;
 	struct list_head segments;
+	uint8_t segment_count;
 	struct list_head node;
 	bool cyclic;
 };
@@ -664,6 +666,7 @@ xilinx_dma_alloc_tx_descriptor(struct xilinx_dma_chan *chan)
 		return NULL;
 
 	INIT_LIST_HEAD(&desc->segments);
+	desc->segment_count = 0;
 
 	return desc;
 }
@@ -1276,7 +1279,24 @@ static void xilinx_dma_start_transfer(struct xilinx_dma_chan *chan)
 
 	reg = dma_ctrl_read(chan, XILINX_DMA_REG_DMACR);
 
-	if (chan->desc_pendingcount <= XILINX_DMA_COALESCE_MAX) {
+	/*
+	 * In case of scatter gather, the AXI DMA core will send an interrupt
+	 * for each segment. The coalesce function is used to only receive 1
+	 * interrupt when all SG segments are done.
+	 */
+	if (chan->has_sg && head_desc->segment_count <= XILINX_DMA_COALESCE_MAX) {
+		reg &= ~XILINX_DMA_CR_COALESCE_MAX;
+		reg |= head_desc->segment_count <<
+				  XILINX_DMA_CR_COALESCE_SHIFT;
+		dma_ctrl_write(chan, XILINX_DMA_REG_DMACR, reg);
+	}
+	else if (!chan->has_sg && chan->desc_pendingcount <= XILINX_DMA_COALESCE_MAX) {
+		/*
+		 * This is the orignal behaviour, based on the number of DMA transfer
+		 * count. The cameralink driver only uses 1 transfer at a time.
+		 * This should be explored if we need to plan multiple tranfers in
+		 * advance at some point for performance reasons
+		 */
 		reg &= ~XILINX_DMA_CR_COALESCE_MAX;
 		reg |= chan->desc_pendingcount <<
 				  XILINX_DMA_CR_COALESCE_SHIFT;
@@ -1930,6 +1950,7 @@ static struct dma_async_tx_descriptor *xilinx_dma_prep_slave_sg(
 			 * list.
 			 */
 			list_add_tail(&segment->node, &desc->segments);
+			desc->segment_count += 1;
 		}
 	}
 

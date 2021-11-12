@@ -99,3 +99,10 @@ void arch_invalidate_pmem(void *addr, size_t size)
 }
 EXPORT_SYMBOL_GPL(arch_invalidate_pmem);
 #endif
+
+void xsc_bram_inval_cache(void *addr, size_t size)
+{
+	__inval_dcache_area(addr, size);
+	__flush_dcache_area(addr, size);
+}
+EXPORT_SYMBOL_GPL(xsc_bram_inval_cache);
