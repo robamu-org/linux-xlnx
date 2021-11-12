@@ -154,4 +154,10 @@ static inline void flush_cache_vunmap(unsigned long start, unsigned long end)
 
 int set_memory_valid(unsigned long addr, int numpages, int enable);
 
+/* This function gives access to unexported cache invalidation functions in
+ * cache.S
+ * It is used by drivers interfacing with an AXI BRAM like xsc-spacewire
+ */
+void xsc_bram_inval_cache(void *addr, size_t size);
+
 #endif

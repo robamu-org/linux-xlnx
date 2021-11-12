@@ -12,6 +12,12 @@ To configure the kernel you can run the following command
 make menuconfig
 ```
 
+To configure the kernal based on an old `.config` file, use
+
+```sh
+make oldconfig
+```
+
 To build a new kernel image run the following command.
 
 ```sh

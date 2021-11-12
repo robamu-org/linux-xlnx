@@ -20,13 +20,14 @@ struct xsc_padc {
 	void __iomem *base_addr;
 };
 
-#define XSC_PADC_CHANNEL(n, t)					\
-	{							\
-		.indexed	= 1,				\
-		.channel	= n,				\
-		.datasheet_name	= "channel"#n,			\
-		.type		= t,				\
-		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW),	\
+#define XSC_PADC_CHANNEL(n, t)						\
+	{								\
+		.indexed	= 1,					\
+		.channel	= n,					\
+		.datasheet_name	= "channel"#n,				\
+		.type		= t,					\
+		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW),		\
+		.info_mask_shared_by_type = BIT(IIO_CHAN_INFO_SCALE),	\
 	}
 
 static const struct iio_chan_spec xsc_padc_channels[] = {
@@ -76,6 +77,10 @@ static int xsc_padc_read_raw(struct iio_dev *indio_dev,
 		*val = xsc_padc_read(indio_dev, chan->channel);
 		if (*val < 0)
 			return *val;
+
+		return IIO_VAL_INT;
+	case IIO_CHAN_INFO_SCALE:
+		*val = 1;
 
 		return IIO_VAL_INT;
 	default:
