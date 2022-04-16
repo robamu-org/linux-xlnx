@@ -9,13 +9,13 @@ Make sure that all prerequisites are installed and setup before running the comm
 To configure the kernel you can run the following command
 
 ```sh
-make menuconfig
+make ARCH=arm menuconfig
 ```
 
 To configure the kernal based on an old `.config` file, use
 
 ```sh
-make oldconfig
+make ARCH=arm oldconfig
 ```
 
 To build a new kernel image run the following command.
