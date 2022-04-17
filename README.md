@@ -30,6 +30,8 @@ Command to create an image with the U-Boot header directly
 make ARCH=arm UIMAGE_LOADADDR=0x8000 uImage
 ```
 
+You can find the output products in `arch/arm/boot/`.
+
 # Prerequisites
 
 You need to have the Yocto SDK installed, which only works on a Linux host. Building 
